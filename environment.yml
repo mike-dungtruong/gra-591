@@ -1,0 +1,46 @@
+# Conda environment for TextSwinUMamba — mirrors Swin-UMamba's known-good combo.
+#
+# Create with:
+#   conda env create -f environment.yml
+#   conda activate textswinumamba
+#
+# This pins torch 2.0.1 + CUDA 11.8 + causal-conv1d 1.1.1 + mamba-ssm 1.1.1 —
+# the exact versions Swin-UMamba's authors tested with. The mamba kernel is
+# very sensitive to these pins; newer releases broke our selective_scan_interface
+# import path.
+
+name: textswinumamba
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # --- pin first: torch with CUDA 11.8 (matches the mamba/causal-conv1d wheels) ---
+      - --extra-index-url https://download.pytorch.org/whl/cu118
+      - torch==2.0.1
+      - torchvision==0.15.2
+
+      # --- Mamba kernel (Swin-UMamba's tested combo) ---
+      - causal-conv1d==1.1.1
+      - mamba-ssm==1.1.1
+
+      # --- model + numerics ---
+      - einops
+      - timm
+      - numba
+      - torchinfo
+
+      # --- text encoder ---
+      - transformers>=4.30
+
+      # --- data / augmentation ---
+      - opencv-python-headless
+      - albumentations
+      - pillow
+      - numpy
+
+      # --- training infra ---
+      - tensorboard
+      - pyyaml
+      - tqdm

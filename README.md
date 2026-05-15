@@ -56,18 +56,30 @@ modifications we made to detach it from nnUNet.
 git clone <your-remote-url> TextSwinUMamba
 cd TextSwinUMamba
 
-# 2. Install deps
-pip install -r requirements.txt
+# 2. Create the conda environment (mirrors Swin-UMamba's tested combo:
+#    Python 3.10, torch 2.0.1, CUDA 11.8, causal-conv1d 1.1.1, mamba-ssm 1.1.1).
+conda env create -f environment.yml
+conda activate textswinumamba
 
-# 3. (Optional) sanity check captions coverage
+# 3. Confirm the mamba kernel imports cleanly under these pins.
+python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn; print('mamba-ssm OK')"
+
+# 4. (Optional) sanity check captions coverage
 python scripts/verify_caption_coverage.py \
     --isic_root /path/to/isic2017 \
     --captions  /path/to/captions.jsonl
 
-# 4. Precompute BERT text features (one time, ~1 min on GPU)
+# 5. Precompute BERT text features (one time, ~1 min on GPU)
 python scripts/precompute_text_features.py \
     --captions /path/to/captions.jsonl \
     --out      cache/text_features.pt
+```
+
+If you'd rather use plain pip instead of conda:
+```bash
+python3.10 -m venv .venv && source .venv/bin/activate
+pip install torch==2.0.1 torchvision==0.15.2 --extra-index-url https://download.pytorch.org/whl/cu118
+pip install -r requirements.txt
 ```
 
 ## Initialize git and push to remote

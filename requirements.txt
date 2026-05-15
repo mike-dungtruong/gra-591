@@ -1,14 +1,36 @@
-torch>=2.0
-torchvision>=0.15
-numpy
-pillow
+# Pip-only fallback. The canonical install path is `conda env create -f environment.yml`,
+# which pins the torch + CUDA combo that the mamba wheels were built against. If you
+# install from this file directly, install torch first with the CUDA 11.8 wheel:
+#   pip install torch==2.0.1 torchvision==0.15.2 --extra-index-url https://download.pytorch.org/whl/cu118
+# then `pip install -r requirements.txt`.
+
+torch==2.0.1
+torchvision==0.15.2
+
+# --- Mamba kernel: Swin-UMamba's tested combo. ---
+# Newer versions are NOT drop-in compatible (causal-conv1d 1.2+ changed its
+# kernel signature; mamba-ssm 2.x reorganized the public API). Stick to these
+# pins unless you're prepared to verify the selective_scan_interface import
+# path still works. Install causal-conv1d BEFORE mamba-ssm.
+causal-conv1d==1.1.1
+mamba-ssm==1.1.1
+
+# --- model + numerics ---
 einops
 timm
+numba
+torchinfo
+
+# --- text encoder ---
 transformers>=4.30
-mamba-ssm
-causal-conv1d
+
+# --- data / augmentation ---
+opencv-python-headless
+albumentations
+pillow
+numpy
+
+# --- training infra ---
 tensorboard
 pyyaml
 tqdm
-opencv-python-headless
-albumentations

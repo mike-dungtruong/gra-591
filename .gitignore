@@ -45,3 +45,8 @@ tensorboard/
 .coverage
 htmlcov/
 .pytest_cache/
+
+
+# 
+
+isic2017/
