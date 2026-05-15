@@ -30,15 +30,18 @@ dependencies:
       - timm
       - numba
       - torchinfo
+      # numpy 2.x breaks the mamba-ssm wheel ABI; pin to the 1.x line.
+      - numpy<2.0
 
       # --- text encoder ---
-      - transformers>=4.30
+      # Pinned to the version that works with tokenizers 0.15 and our mamba wheels.
+      - transformers==4.36.2
 
       # --- data / augmentation ---
-      - opencv-python-headless
+      # Pinned to the wheel that ships with manylinux2014 (matches Colab base image).
+      - opencv-python==4.8.1.78
       - albumentations
       - pillow
-      - numpy
 
       # --- training infra ---
       - tensorboard
