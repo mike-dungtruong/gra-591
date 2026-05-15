@@ -1,0 +1,47 @@
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# ----- Editors / OS -----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.ipynb_checkpoints/
+
+# ----- Large artifacts (live in Drive / external storage) -----
+checkpoints/
+runs/
+cache/
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+
+# ----- Datasets (never commit) -----
+datasets/
+data_raw/
+data_processed/
+
+# ----- Logs -----
+*.log
+tb/
+tensorboard/
+
+# ----- Captions cache (optional: comment out if you want to commit caption JSONL) -----
+# captions/
+
+# ----- Misc -----
+.env
+.coverage
+htmlcov/
+.pytest_cache/

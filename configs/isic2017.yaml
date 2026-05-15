@@ -1,0 +1,67 @@
+run_name: textswinumamba_isic2017_bert_base
+
+# ----- paths -----
+data:
+  isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2017
+  captions_jsonl: /Users/mike/Documents/GRA591/code/isic-caption/outputs/pilot_captions.jsonl
+  text_features_cache: /Users/mike/Documents/GRA591/code/TextSwinUMamba/cache/text_features.pt
+  image_size: 256
+  num_workers: 4
+
+# ----- checkpoint and logging -----
+output:
+  # On Colab, override this to e.g. /content/drive/MyDrive/TextSwinUMamba/runs
+  base_dir: ./runs
+  save_every_n_epochs: 1     # last.pth overwritten this often
+  keep_best: true             # also save best.pth on Dice improvement
+  tensorboard: true
+
+# ----- model -----
+model:
+  pretrained_ckpt: ./checkpoints/pretrained/vmamba_tiny_e292.pth
+  num_input_channels: 3
+  num_classes: 1              # binary lesion mask
+  features_per_stage: [96, 192, 384, 768]
+  d_state: 16
+  drop_path_rate: 0.2
+  deep_supervision: true
+  # TGCM config
+  tgcm:
+    enabled: true
+    k_filters: 4              # ViTexNet K=4
+    kernel_size: 3
+    iterative: true           # apply TGDC twice as in ViTexNet
+    beta_init: 0.5            # initial scale of text contribution
+
+# ----- text encoder -----
+text:
+  model_name: bert-base-uncased
+  max_length: 64              # captions are ~20 tokens; 64 is safe
+  pool: attention             # attention | mean | cls
+  freeze: true
+
+# ----- training -----
+train:
+  epochs: 200
+  batch_size: 16
+  grad_accum_steps: 1
+  optimizer: adamw
+  lr: 1.0e-4
+  weight_decay: 5.0e-2
+  scheduler: cosine
+  warmup_epochs: 5
+  freeze_encoder_epochs: 10   # Swin-UMamba paper schedule
+  amp: true                   # mixed precision on T4
+  seed: 42
+  max_hours: 11.5             # graceful stop before Colab kicks us
+
+# ----- loss -----
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+  deep_supervision_weights: [1.0, 0.5, 0.25, 0.125]  # high-res to low-res
+
+# ----- eval -----
+eval:
+  metrics: [dice, iou]
+  val_every_n_epochs: 1

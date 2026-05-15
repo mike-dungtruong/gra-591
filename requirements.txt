@@ -1,0 +1,14 @@
+torch>=2.0
+torchvision>=0.15
+numpy
+pillow
+einops
+timm
+transformers>=4.30
+mamba-ssm
+causal-conv1d
+tensorboard
+pyyaml
+tqdm
+opencv-python-headless
+albumentations
