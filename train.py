@@ -45,6 +45,7 @@ from utils.checkpoint import (
     load_checkpoint,
     save_checkpoint,
 )
+from utils.logging import attach_text_log, plot_progress
 from utils.losses import DiceBCEWithDeepSupervision
 from utils.metrics import binary_dice, binary_iou, first_scale
 from utils.misc import (
@@ -103,6 +104,9 @@ def main():
     print(f"[info] text_mode = {text_mode}")
 
     run_dir = ensure_dir(Path(cfg["output"]["base_dir"]) / cfg["run_name"])
+    # Start teeing stdout/stderr to disk BEFORE anything else prints, so the
+    # text log captures the full session (resume-aware: append mode).
+    log_fh = attach_text_log(run_dir / "training_log.txt")
     print(f"[info] run_dir = {run_dir}")
     cfg_hash = config_hash(cfg)
     (run_dir / "config.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False))
@@ -245,11 +249,19 @@ def main():
         if epoch == cfg["train"]["freeze_encoder_epochs"]:
             print(f"[info] epoch {epoch}: unfreezing encoder")
             model.unfreeze_encoder()
-            # Rebuild optimizer to include newly-trainable params.
+            # Rebuild optimizer to include newly-trainable encoder params.
             optimizer = torch.optim.AdamW(
                 [p for p in model.parameters() if p.requires_grad],
                 lr=cfg["train"]["lr"],
                 weight_decay=cfg["train"]["weight_decay"],
+            )
+            # Re-attach scheduler to the new optimizer, resuming at the same
+            # position in the cosine curve (last_epoch=epoch-1 so that __init__
+            # advances to `epoch` and sets the correct LR before this epoch runs).
+            scheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                lr_lambda=build_lr_lambda(cfg["train"]["epochs"], cfg["train"]["warmup_epochs"]),
+                last_epoch=epoch - 1,
             )
 
         # ---- train epoch ----
@@ -258,7 +270,8 @@ def main():
             text_encoder.eval()
         loss_meter = AverageMeter()
         t0 = time.time()
-        for batch in train_loader:
+        accum_steps = max(1, cfg["train"].get("grad_accum_steps", 1))
+        for micro_step, batch in enumerate(train_loader):
             image = batch["image"].to(device, non_blocking=True)
             mask = batch["mask"].to(device, non_blocking=True)
 
@@ -270,16 +283,21 @@ def main():
             else:
                 text_pooled = batch["text_pooled"].to(device, non_blocking=True)
 
-            optimizer.zero_grad(set_to_none=True)
+            if micro_step % accum_steps == 0:
+                optimizer.zero_grad(set_to_none=True)
+
             with torch.cuda.amp.autocast(enabled=use_amp):
                 output = model(image, text_pooled)
-                loss = criterion(output, mask)
+                loss = criterion(output, mask) / accum_steps
             scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
 
-            loss_meter.update(loss.item(), n=image.size(0))
-            global_step += 1
+            is_update_step = (micro_step + 1) % accum_steps == 0 or (micro_step + 1 == len(train_loader))
+            if is_update_step:
+                scaler.step(optimizer)
+                scaler.update()
+                global_step += 1
+
+            loss_meter.update(loss.item() * accum_steps, n=image.size(0))
 
             if interrupted["flag"]:
                 break
@@ -337,6 +355,14 @@ def main():
         if improved:
             best_val_dice = dice_meter.avg
             best_epoch = epoch
+
+        # Regenerate progress.png from the just-updated history.csv (after the
+        # best_* update so the red marker on the val-metrics panel is current).
+        plot_progress(
+            history_csv, run_dir / "progress.png",
+            best_epoch=best_epoch if best_epoch >= 0 else None,
+            best_val_dice=best_val_dice if best_epoch >= 0 else None,
+        )
         save_checkpoint(
             run_dir / "last.pth",
             model=model, optimizer=optimizer, scheduler=scheduler,

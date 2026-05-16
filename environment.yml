@@ -45,5 +45,6 @@ dependencies:
 
       # --- training infra ---
       - tensorboard
+      - matplotlib
       - pyyaml
       - tqdm

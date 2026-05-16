@@ -119,6 +119,12 @@ class ISICDataset(Dataset):
             item["attention_mask"] = enc["attention_mask"].squeeze(0)
         else:  # features
             feats = self.text_features[image_id]
+            missing = {"pooled", "tokens", "attention_mask"} - feats.keys()
+            if missing:
+                raise KeyError(
+                    f"text_features[{image_id!r}] is missing keys: {missing}. "
+                    "Re-run scripts/precompute_text_features.py to regenerate the cache."
+                )
             item["text_pooled"] = torch.as_tensor(feats["pooled"], dtype=torch.float)
             item["text_tokens"] = torch.as_tensor(feats["tokens"], dtype=torch.float)
             item["text_attention_mask"] = torch.as_tensor(

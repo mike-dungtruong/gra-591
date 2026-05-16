@@ -3,7 +3,7 @@ run_name: textswinumamba_isic2017_bert_base
 # ----- paths -----
 data:
   isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2017
-  captions_jsonl: /Users/mike/Documents/GRA591/code/TextSwinUMamba/cache/dummy_captions.jsonl
+  captions_jsonl: /Users/mike/Documents/GRA591/code/TextSwinUMamba/outputs/captions/captions.jsonl
   text_features_cache: /Users/mike/Documents/GRA591/code/TextSwinUMamba/cache/text_features.pt
   image_size: 256
   num_workers: 4

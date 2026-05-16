@@ -36,5 +36,10 @@ pillow
 
 # --- training infra ---
 tensorboard
+matplotlib
 pyyaml
 tqdm
+
+# --- caption generation (OpenAI API) ---
+# Only needed for caption_gen/generate.py. Training does not import caption_gen.
+openai>=1.40.0
