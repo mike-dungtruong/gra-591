@@ -255,6 +255,11 @@ def main():
                 lr=cfg["train"]["lr"],
                 weight_decay=cfg["train"]["weight_decay"],
             )
+            # PyTorch requires 'initial_lr' in every param group when
+            # last_epoch >= 0 (resume mode). Inject it on the freshly-built
+            # optimizer so the scheduler's __init__ doesn't raise KeyError.
+            for pg in optimizer.param_groups:
+                pg.setdefault('initial_lr', pg['lr'])
             # Re-attach scheduler to the new optimizer, resuming at the same
             # position in the cosine curve (last_epoch=epoch-1 so that __init__
             # advances to `epoch` and sets the correct LR before this epoch runs).
