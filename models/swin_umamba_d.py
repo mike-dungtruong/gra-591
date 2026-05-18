@@ -126,7 +126,7 @@ class FinalPatchExpand_X4(nn.Module):
         self.dim = dim
         self.dim_scale = dim_scale
         self.expand = nn.Linear(dim, 16*dim, bias=False)
-        self.output_dim = dim 
+        self.output_dim = dim
         self.norm = norm_layer(self.output_dim)
 
     def forward(self, x):
@@ -182,7 +182,7 @@ class PatchMerging2D(nn.Module):
             x1 = x1[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x2 = x2[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
             x3 = x3[:, :SHAPE_FIX[0], :SHAPE_FIX[1], :]
-        
+
         x = torch.cat([x0, x1, x2, x3], -1)  # B H/2 W/2 4*C
         x = x.view(B, H//2, W//2, 4 * C)  # B H/2*W/2 4*C
 
@@ -236,10 +236,10 @@ class SS2D(nn.Module):
         self.act = nn.SiLU()
 
         self.x_proj = (
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
-            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
         )
         self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=4, N, inner)
         del self.x_proj
@@ -253,7 +253,7 @@ class SS2D(nn.Module):
         self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=4, inner, rank)
         self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=4, inner)
         del self.dt_projs
-        
+
         self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
         self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
 
@@ -287,7 +287,7 @@ class SS2D(nn.Module):
             dt_proj.bias.copy_(inv_dt)
         # Our initialization would set all Linear.bias to zero, need to mark this one as _no_reinit
         dt_proj.bias._no_reinit = True
-        
+
         return dt_proj
 
     @staticmethod
@@ -342,7 +342,7 @@ class SS2D(nn.Module):
         dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
 
         out_y = self.selective_scan(
-            xs, dts, 
+            xs, dts,
             As, Bs, Cs, Ds, z=None,
             delta_bias=dt_projs_bias,
             delta_softplus=True,
@@ -410,14 +410,14 @@ class VSSLayer(nn.Module):
     """
 
     def __init__(
-        self, 
-        dim, 
-        depth, 
+        self,
+        dim,
+        depth,
         attn_drop=0.,
-        drop_path=0., 
-        norm_layer=nn.LayerNorm, 
-        downsample=None, 
-        use_checkpoint=False, 
+        drop_path=0.,
+        norm_layer=nn.LayerNorm,
+        downsample=None,
+        use_checkpoint=False,
         d_state=16,
         **kwargs,
     ):
@@ -434,7 +434,7 @@ class VSSLayer(nn.Module):
                 d_state=d_state,
             )
             for i in range(depth)])
-        
+
         if True: # is this really applied? Yes, but been overriden later in VSSM!
             def _init_weights(module: nn.Module):
                 for name, p in module.named_parameters():
@@ -455,7 +455,7 @@ class VSSLayer(nn.Module):
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
-        
+
         if self.downsample is not None:
             x = self.downsample(x)
 
@@ -463,7 +463,7 @@ class VSSLayer(nn.Module):
 
 
 class VSSMEncoder(nn.Module):
-    def __init__(self, patch_size=4, in_chans=3, depths=[2, 2, 9, 2], 
+    def __init__(self, patch_size=4, in_chans=3, depths=[2, 2, 9, 2],
                  dims=[96, 192, 384, 768], d_state=16, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, patch_norm=True,
                  use_checkpoint=False, **kwargs):
@@ -497,7 +497,7 @@ class VSSMEncoder(nn.Module):
                 dim=dims[i_layer],
                 depth=depths[i_layer],
                 d_state=math.ceil(dims[0] / 6) if d_state is None else d_state, # 20240109
-                drop=drop_rate, 
+                drop=drop_rate,
                 attn_drop=attn_drop_rate,
                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                 norm_layer=norm_layer,
@@ -521,7 +521,7 @@ class VSSMEncoder(nn.Module):
         no fc.weight found in the any of the model parameters
         no nn.Embedding found in the any of the model parameters
         so the thing is, VSSBlock initialization is useless
-        
+
         Conv2D is not intialized !!!
         """
         # print(m, getattr(getattr(m, "weight", nn.Identity()), "INIT", None), isinstance(m, nn.Linear), "======================")
@@ -563,8 +563,8 @@ class UNetResDecoder(nn.Module):
     def __init__(
             self,
             num_classes: int,
-            deep_supervision, 
-            features_per_stage: Union[Tuple[int, ...], List[int]] = None,         
+            deep_supervision,
+            features_per_stage: Union[Tuple[int, ...], List[int]] = None,
             drop_path_rate: float = 0.2,
             d_state: int = 16,
         ):
@@ -695,11 +695,11 @@ class SwinUMambaD(nn.Module):
 
 
 def load_pretrained_ckpt(
-    model, 
+    model,
     num_input_channels=1,
     ckpt_path = "./data/pretrained/vmamba/vmamba_tiny_e292.pth"
 ):
-    
+
     print(f"Loading weights from: {ckpt_path}")
     skip_params = ["norm.weight", "norm.bias", "head.weight", "head.bias"]
 
@@ -722,7 +722,7 @@ def load_pretrained_ckpt(
             model_dict[kr] = v
         else:
             print(f"Passing weights: {k}")
-        
+
     model.load_state_dict(model_dict)
 
     return model

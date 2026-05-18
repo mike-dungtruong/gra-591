@@ -38,7 +38,6 @@ class FrozenBertTextEncoder(nn.Module):
         self.bert = AutoModel.from_pretrained(model_name)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.hidden_size = self.bert.config.hidden_size  # 768 for bert-base
-
         if freeze:
             for p in self.bert.parameters():
                 p.requires_grad = False

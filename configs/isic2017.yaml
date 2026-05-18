@@ -14,7 +14,7 @@ output:
   base_dir: ./runs
   save_every_n_epochs: 1     # last.pth overwritten this often
   keep_best: true             # also save best.pth on Dice improvement
-  tensorboard: true
+  tensorboard: false
 
 # ----- model -----
 model:

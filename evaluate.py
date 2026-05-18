@@ -19,7 +19,8 @@ from data.transforms import val_transform
 from models.text_encoder import FrozenBertTextEncoder
 from models.text_swin_umamba_d import build_text_swin_umamba_d
 from utils.checkpoint import load_checkpoint
-from utils.metrics import binary_dice, binary_iou, first_scale
+from utils.metrics import (binary_accuracy, binary_dice, binary_iou,
+                           binary_sensitivity, binary_specificity, first_scale)
 from utils.misc import AverageMeter
 
 
@@ -83,6 +84,9 @@ def main():
     model.eval()
     dice_meter = AverageMeter()
     iou_meter = AverageMeter()
+    acc_meter = AverageMeter()
+    sen_meter = AverageMeter()
+    spe_meter = AverageMeter()
     with torch.no_grad():
         for batch in val_loader:
             image = batch["image"].to(device, non_blocking=True)
@@ -95,10 +99,15 @@ def main():
                 text_pooled = batch["text_pooled"].to(device, non_blocking=True)
             output = model(image, text_pooled)
             logits = first_scale(output)
-            dice_meter.update(binary_dice(logits, mask).item(), n=image.size(0))
-            iou_meter.update(binary_iou(logits, mask).item(), n=image.size(0))
+            n = image.size(0)
+            dice_meter.update(binary_dice(logits, mask).item(), n=n)
+            iou_meter.update(binary_iou(logits, mask).item(), n=n)
+            acc_meter.update(binary_accuracy(logits, mask).item(), n=n)
+            sen_meter.update(binary_sensitivity(logits, mask).item(), n=n)
+            spe_meter.update(binary_specificity(logits, mask).item(), n=n)
 
-    print(f"val_dice {dice_meter.avg:.4f} | val_iou {iou_meter.avg:.4f}")
+    print(f"mIoU {iou_meter.avg:.4f} | DSC {dice_meter.avg:.4f} | "
+          f"Acc {acc_meter.avg:.4f} | Spe {spe_meter.avg:.4f} | Sen {sen_meter.avg:.4f}")
 
 
 if __name__ == "__main__":
