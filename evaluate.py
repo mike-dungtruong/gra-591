@@ -6,22 +6,20 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import torch
 import yaml
 from torch.utils.data import DataLoader
 
-sys.path.append(str(Path(__file__).resolve().parent))
-from data.isic_dataset import build_isic_dataset
-from data.transforms import val_transform
-from models.text_encoder import FrozenBertTextEncoder
-from models.text_swin_umamba_d import build_text_swin_umamba_d
-from utils.checkpoint import load_checkpoint
-from utils.metrics import (binary_accuracy, binary_dice, binary_iou,
-                           binary_sensitivity, binary_specificity, first_scale)
-from utils.misc import AverageMeter
+from src.data.isic_dataset import build_isic_dataset
+from src.data.transforms import val_transform
+from src.models.text_encoder import FrozenBertTextEncoder
+from src.models.text_swin_umamba_d import build_text_swin_umamba_d
+from src.utils.checkpoint import load_checkpoint
+from src.utils.metrics import (binary_accuracy, binary_dice, binary_iou,
+                                binary_sensitivity, binary_specificity, first_scale)
+from src.utils.misc import AverageMeter
 
 
 def main():

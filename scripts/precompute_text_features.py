@@ -21,11 +21,11 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
-# Make repo importable when run directly.
+# Make repo root importable when run directly from scripts/.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from data.captions import load_captions  # noqa: E402
-from models.text_encoder import FrozenBertTextEncoder  # noqa: E402
+from src.data.captions import load_captions
+from src.models.text_encoder import FrozenBertTextEncoder
 
 
 @torch.no_grad()

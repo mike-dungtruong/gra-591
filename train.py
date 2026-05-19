@@ -24,7 +24,6 @@ import argparse
 import csv
 import math
 import signal
-import sys
 import time
 from pathlib import Path
 
@@ -34,21 +33,19 @@ import yaml
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-# Local imports
-sys.path.append(str(Path(__file__).resolve().parent))
-from data.isic_dataset import build_isic_dataset
-from data.transforms import train_transform, val_transform
-from models.text_encoder import FrozenBertTextEncoder
-from models.text_swin_umamba_d import build_text_swin_umamba_d
-from utils.checkpoint import (
+from src.data.isic_dataset import build_isic_dataset
+from src.data.transforms import train_transform, val_transform
+from src.models.text_encoder import FrozenBertTextEncoder
+from src.models.text_swin_umamba_d import build_text_swin_umamba_d
+from src.utils.checkpoint import (
     find_latest_checkpoint,
     load_checkpoint,
     save_checkpoint,
 )
-from utils.logging import attach_text_log, plot_progress
-from utils.losses import DiceBCEWithDeepSupervision
-from utils.metrics import binary_dice, binary_iou, first_scale
-from utils.misc import (
+from src.utils.logging import attach_text_log, plot_progress
+from src.utils.losses import DiceBCEWithDeepSupervision
+from src.utils.metrics import binary_dice, binary_iou, first_scale
+from src.utils.misc import (
     AverageMeter,
     WallClockBudget,
     config_hash,
