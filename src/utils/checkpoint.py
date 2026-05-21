@@ -42,6 +42,7 @@ def save_checkpoint(
     best_val_dice: float,
     best_epoch: int,
     config_hash: str,
+    no_improve: int = 0,
 ) -> None:
     """Atomic save: write to .tmp then replace, so a crash mid-write cannot corrupt."""
     path = Path(path)
@@ -56,6 +57,7 @@ def save_checkpoint(
         "global_step": global_step,
         "best_val_dice": best_val_dice,
         "best_epoch": best_epoch,
+        "no_improve": no_improve,
         "rng_states": capture_rng_state(),
         "config_hash": config_hash,
     }
@@ -98,6 +100,7 @@ def load_checkpoint(
         "global_step": ckpt.get("global_step", 0),
         "best_val_dice": ckpt.get("best_val_dice", 0.0),
         "best_epoch": ckpt.get("best_epoch", -1),
+        "no_improve": ckpt.get("no_improve", 0),
     }
 
 

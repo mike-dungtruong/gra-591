@@ -9,7 +9,7 @@ Usage:
         --captions /path/to/captions.jsonl \
         --out cache/text_features.pt \
         --model bert-base-uncased \
-        --pool attention \
+        --pool mean \
         --max_length 64
 """
 from __future__ import annotations
@@ -34,7 +34,7 @@ def main():
     parser.add_argument("--captions", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--model", default="bert-base-uncased")
-    parser.add_argument("--pool", default="attention", choices=["attention", "mean", "cls"])
+    parser.add_argument("--pool", default="mean", choices=["attention", "mean", "cls"])
     parser.add_argument("--max_length", type=int, default=64)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")

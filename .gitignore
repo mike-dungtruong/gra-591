@@ -71,3 +71,6 @@ scripts/verify_caption_coverage.py
 # ----- AI assistant instruction files (local-only) -----
 GEMINI.md
 AGENTS.md
+
+# ----- Misc (optional: comment out if you want to commit) -----
+NOTES.md

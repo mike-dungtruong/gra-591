@@ -28,6 +28,13 @@ from .swin_umamba_d import (  # type: ignore[attr-defined]
 from .tgcm import TGCM
 
 
+class TextIdentity(nn.Module):
+    """Decoder hook used when text gating is disabled for ablations."""
+
+    def forward(self, x_img: torch.Tensor, text_pooled: torch.Tensor) -> torch.Tensor:
+        return x_img
+
+
 class TextUNetResDecoder(nn.Module):
     """Mirror of the author's UNetResDecoder, plus a TGCM call per stage."""
 
@@ -43,6 +50,7 @@ class TextUNetResDecoder(nn.Module):
         tgcm_kernel: int = 3,
         tgcm_iterative: bool = True,
         tgcm_beta_init: float = 0.5,
+        tgcm_enabled: bool = True,
     ) -> None:
         super().__init__()
         encoder_channels = list(features_per_stage)
@@ -81,16 +89,19 @@ class TextUNetResDecoder(nn.Module):
             )
             seg_layers.append(nn.Conv2d(skip, num_classes, 1, 1, 0, bias=True))
             concat_back_dim.append(nn.Linear(2 * skip, skip))
-            tgcms.append(
-                TGCM(
-                    c_img=skip,
-                    c_text=text_dim,
-                    k_filters=tgcm_k,
-                    kernel_size=tgcm_kernel,
-                    iterative=tgcm_iterative,
-                    beta_init=tgcm_beta_init,
+            if tgcm_enabled:
+                tgcms.append(
+                    TGCM(
+                        c_img=skip,
+                        c_text=text_dim,
+                        k_filters=tgcm_k,
+                        kernel_size=tgcm_kernel,
+                        iterative=tgcm_iterative,
+                        beta_init=tgcm_beta_init,
+                    )
                 )
-            )
+            else:
+                tgcms.append(TextIdentity())
             last_skip_dim = skip
 
         # Final 4x patch expand to reach input resolution, then a 1x1 seg head.
@@ -159,6 +170,7 @@ class TextSwinUMambaD(nn.Module):
         tgcm_kernel: int = 3,
         tgcm_iterative: bool = True,
         tgcm_beta_init: float = 0.5,
+        tgcm_enabled: bool = True,
     ) -> None:
         super().__init__()
         self.vssm_encoder = VSSMEncoder(
@@ -179,6 +191,7 @@ class TextSwinUMambaD(nn.Module):
             tgcm_kernel=tgcm_kernel,
             tgcm_iterative=tgcm_iterative,
             tgcm_beta_init=tgcm_beta_init,
+            tgcm_enabled=tgcm_enabled,
         )
 
     def forward(
@@ -213,6 +226,7 @@ def build_text_swin_umamba_d(
     tgcm_kernel: int = 3,
     tgcm_iterative: bool = True,
     tgcm_beta_init: float = 0.5,
+    tgcm_enabled: bool = True,
     pretrained_ckpt: str | None = None,
 ) -> TextSwinUMambaD:
     """Instantiate TextSwinUMambaD and optionally load VMamba-Tiny pretrained weights."""
@@ -228,6 +242,7 @@ def build_text_swin_umamba_d(
         tgcm_kernel=tgcm_kernel,
         tgcm_iterative=tgcm_iterative,
         tgcm_beta_init=tgcm_beta_init,
+        tgcm_enabled=tgcm_enabled,
     )
     if pretrained_ckpt:
         model = load_pretrained_ckpt(

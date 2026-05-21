@@ -31,29 +31,31 @@ model:
     k_filters: 4              # ViTexNet K=4
     kernel_size: 3
     iterative: true           # apply TGDC twice as in ViTexNet
-    beta_init: 0.5            # initial scale of text contribution
+    beta_init: 0.1            # start close to image baseline, then learn text contribution
 
 # ----- text encoder -----
 text:
   model_name: bert-base-uncased
   max_length: 64              # captions are ~20 tokens; 64 is safe
-  pool: attention             # attention | mean | cls
+  pool: mean                  # mean | cls | attention
   freeze: true
 
 # ----- training -----
 train:
-  epochs: 200
-  batch_size: 16
+  epochs: 300
+  batch_size: 32
   grad_accum_steps: 1
   optimizer: adamw
-  lr: 1.0e-4
-  weight_decay: 5.0e-2
-  scheduler: cosine
-  warmup_epochs: 5
+  lr: 1.0e-3
+  weight_decay: 1.0e-2
+  scheduler: cosine_annealing
+  scheduler_t_max: 50
+  scheduler_eta_min: 1.0e-5
   freeze_encoder_epochs: 10   # Swin-UMamba paper schedule
   amp: true                   # mixed precision on T4
   seed: 42
   max_hours: 11.5             # graceful stop before Colab kicks us
+  patience: 50                # early stop if val Dice doesn't improve for this many epochs
 
 # ----- loss -----
 loss:

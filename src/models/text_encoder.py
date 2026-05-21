@@ -1,11 +1,12 @@
 """Frozen BERT text encoder for caption features.
 
-Default: bert-base-uncased, frozen, attention-pooled to a single (B, C_text) vector
-plus per-token features (B, L, C_text). Both are returned so downstream modules can
-choose between pooled gating and token-level attention.
+Default: bert-base-uncased, frozen, mean-pooled to a single (B, C_text) vector plus
+per-token features (B, L, C_text). Both are returned so downstream modules can choose
+between pooled gating and token-level attention.
 
-For ISIC captions (~20 tokens), attention pooling outperforms CLS in practice, but
-all three options are wired here: 'attention' | 'mean' | 'cls'.
+For precomputed text features, prefer `mean` or `cls`. The `attention` option is
+available for experiments, but its small pooler is not trained in the default
+features workflow.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ class FrozenBertTextEncoder(nn.Module):
     def __init__(
         self,
         model_name: str = "bert-base-uncased",
-        pool: str = "attention",
+        pool: str = "mean",
         freeze: bool = True,
     ) -> None:
         super().__init__()
@@ -46,8 +47,8 @@ class FrozenBertTextEncoder(nn.Module):
         # Attention pooling: learnable query attends over token features.
         if pool == "attention":
             self.attn_query = nn.Parameter(torch.zeros(1, 1, self.hidden_size))
-            nn.init.trunc_normal_(self.attn_query, std=0.02)
             self.attn_proj = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+            nn.init.eye_(self.attn_proj.weight)
 
     @torch.no_grad()
     def tokenize(self, texts, max_length: int = 64) -> dict:

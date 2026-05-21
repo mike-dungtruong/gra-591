@@ -1,10 +1,12 @@
 """ISIC 2017 Dataset that yields (image, mask, caption_input_ids, caption_attn_mask, image_id).
 
-Two text modes:
+Three text modes:
 - `text_mode="tokens"` (default): tokenizes captions on the fly with a provided tokenizer
    and emits input_ids + attention_mask. The model's text encoder runs each batch.
 - `text_mode="features"`: loads precomputed text features from a .pt cache produced by
    `scripts/precompute_text_features.py`. Faster and recommended for Colab.
+- `text_mode="none"`: no text processing; returns only image, mask, and image_id.
+   Use this for baseline models (SwinUMamba, SwinUMamba-D) that have no text branch.
 
 The dataset auto-discovers `ISIC_XXXXXXX.jpg` images in `<root>/<split>/images/` and
 their masks at `<root>/<split>/masks/ISIC_XXXXXXX_segmentation.png`.
@@ -28,7 +30,7 @@ class ISICDataset(Dataset):
         self,
         root: str | Path,
         split: str,                          # 'train' or 'val'
-        captions: Dict[str, str],
+        captions: Optional[Dict[str, str]],  # None when text_mode='none'
         transform: Callable,
         *,
         text_mode: str = "tokens",
@@ -39,7 +41,7 @@ class ISICDataset(Dataset):
     ) -> None:
         super().__init__()
         assert split in {"train", "val"}, split
-        assert text_mode in {"tokens", "features"}, text_mode
+        assert text_mode in {"tokens", "features", "none"}, text_mode
         if text_mode == "tokens" and tokenizer is None:
             raise ValueError("tokenizer is required when text_mode='tokens'")
         if text_mode == "features" and text_features is None:
@@ -48,7 +50,7 @@ class ISICDataset(Dataset):
         self.root = Path(root)
         self.split = split
         self.transform = transform
-        self.captions = captions
+        self.captions = captions or {}
         self.text_mode = text_mode
         self.tokenizer = tokenizer
         self.text_max_length = text_max_length
@@ -68,14 +70,14 @@ class ISICDataset(Dataset):
             mask_path = mask_dir / f"{image_id}_segmentation.png"
             if not mask_path.exists():
                 continue
-            if require_caption and image_id not in captions:
+            if text_mode != "none" and require_caption and image_id not in self.captions:
                 continue
             if text_mode == "features" and image_id not in (text_features or {}):
                 continue
             records.append((image_id, img_path, mask_path))
         if not records:
             raise RuntimeError(
-                f"No usable (image, mask, caption) triples found in {img_dir}. "
+                f"No usable (image, mask) pairs found in {img_dir}. "
                 "Check require_caption setting and caption/feature coverage."
             )
         self.records = records
@@ -104,8 +106,13 @@ class ISICDataset(Dataset):
         image_t = out["image"]                          # FloatTensor (3, H, W)
         mask_t = out["mask"].unsqueeze(0).float()        # FloatTensor (1, H, W)
 
+        item = {"image": image_t, "mask": mask_t, "image_id": image_id}
+
+        if self.text_mode == "none":
+            return item
+
         caption = self.captions.get(image_id, "")
-        item = {"image": image_t, "mask": mask_t, "image_id": image_id, "caption": caption}
+        item["caption"] = caption
 
         if self.text_mode == "tokens":
             enc = self.tokenizer(
@@ -137,7 +144,7 @@ def build_isic_dataset(
     *,
     root: str | Path,
     split: str,
-    captions_jsonl: str | Path,
+    captions_jsonl: Optional[str | Path] = None,
     transform: Callable,
     text_mode: str = "tokens",
     tokenizer=None,
@@ -145,8 +152,12 @@ def build_isic_dataset(
     text_features_cache: Optional[str | Path] = None,
     require_caption: bool = True,
 ) -> ISICDataset:
-    """Convenience builder used by train.py."""
-    captions = load_captions(captions_jsonl)
+    """Convenience builder used by train.py and baseline training scripts."""
+    captions = None
+    if text_mode != "none":
+        if captions_jsonl is None:
+            raise ValueError("captions_jsonl must be provided when text_mode != 'none'")
+        captions = load_captions(captions_jsonl)
     text_features = None
     if text_mode == "features":
         if text_features_cache is None:

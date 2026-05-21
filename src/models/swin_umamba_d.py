@@ -736,6 +736,7 @@ def build_swin_umamba_d(
     d_state: int = 16,
     drop_path_rate: float = 0.2,
     deep_supervision: bool = True,
+    pretrained_ckpt: str = None,
 ):
     """Plain-Python constructor replacing `get_swin_umamba_d_from_plans()`."""
     vss_args = dict(
@@ -755,4 +756,6 @@ def build_swin_umamba_d(
     model = SwinUMambaD(vss_args, decoder_args)
     model.apply(InitWeights_He(1e-2))
     model.apply(init_last_bn_before_add_to_0)
+    if pretrained_ckpt is not None:
+        model = load_pretrained_ckpt(model, num_input_channels=num_input_channels, ckpt_path=pretrained_ckpt)
     return model

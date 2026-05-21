@@ -20,6 +20,7 @@ einops
 timm
 numba
 torchinfo
+monai
 # numpy 2.x breaks the mamba-ssm wheel ABI; pin to the 1.x line.
 numpy<2.0
 
