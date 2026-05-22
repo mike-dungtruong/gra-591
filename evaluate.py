@@ -76,6 +76,8 @@ def main():
         tokenizer=tokenizer,
         text_max_length=cfg["text"]["max_length"],
         text_features_cache=cfg["data"].get("text_features_cache"),
+        image_glob=cfg["data"].get("image_glob", "ISIC_*.jpg"),
+        mask_template=cfg["data"].get("mask_template", "{stem}_segmentation.png"),
     )
     val_loader = DataLoader(
         val_ds, batch_size=cfg["train"]["batch_size"], shuffle=False,

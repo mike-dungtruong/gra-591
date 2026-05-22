@@ -1,13 +1,11 @@
-"""Training entry point for SwinUMamba (Mamba encoder + CNN decoder) on ISIC 2017.
+"""Training entry point for TextSwinUMamba (CNN decoder + TGCM text injection) on ISIC 2017.
 
-This is the baseline without text guidance. Compared to train.py:
-  - Uses SwinUMamba (CNN decoder) instead of TextSwinUMambaD
-  - No text encoder, no captions, no text features
-  - Dataset loaded with text_mode="none"
+Identical to train.py except it loads TextSwinUMamba (CNN decoder) instead of
+TextSwinUMambaD (Mamba decoder). All other infrastructure is shared.
 
 Usage:
-    python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
-    python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml --resume auto
+    python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml
+    python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml --resume auto
 """
 from __future__ import annotations
 
@@ -18,13 +16,15 @@ import time
 from pathlib import Path
 
 import torch
+import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from src.data.isic_dataset import build_isic_dataset
 from src.data.transforms import train_transform, val_transform
-from src.models.swin_umamba import build_swin_umamba
+from src.models.text_encoder import FrozenBertTextEncoder
+from src.models.text_swin_umamba import build_text_swin_umamba
 from src.utils.checkpoint import (
     find_latest_checkpoint,
     load_checkpoint,
@@ -48,6 +48,8 @@ def parse_args():
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--resume", default="auto",
                    help="'auto' (load last.pth if present), 'none', or path to checkpoint")
+    p.add_argument("--text_mode", default=None, choices=[None, "tokens", "features"],
+                   help="Override text mode from config")
     return p.parse_args()
 
 
@@ -70,6 +72,10 @@ def main():
     cfg = load_config(args.config)
     set_seed(cfg["train"]["seed"])
 
+    text_mode = args.text_mode or ("features" if Path(cfg["data"].get(
+        "text_features_cache", "")).exists() else "tokens")
+    print(f"[info] text_mode = {text_mode}")
+
     run_dir = ensure_dir(Path(cfg["output"]["base_dir"]) / cfg["run_name"])
     log_fh = attach_text_log(run_dir / "training_log.txt")
     print(f"[info] run_dir = {run_dir}")
@@ -80,34 +86,61 @@ def main():
     print(f"[info] device = {device}")
 
     # --------- model ---------
-    model = build_swin_umamba(
+    text_dim = 768
+    model = build_text_swin_umamba(
         num_input_channels=cfg["model"]["num_input_channels"],
         num_classes=cfg["model"]["num_classes"],
         feat_size=cfg["model"].get("feat_size", [48, 96, 192, 384, 768]),
         drop_path_rate=cfg["model"]["drop_path_rate"],
         deep_supervision=cfg["model"]["deep_supervision"],
         pretrained_ckpt=cfg["model"].get("pretrained_ckpt"),
+        text_dim=text_dim,
+        tgcm_k=cfg["model"]["tgcm"]["k_filters"],
+        tgcm_kernel=cfg["model"]["tgcm"]["kernel_size"],
+        tgcm_iterative=cfg["model"]["tgcm"]["iterative"],
+        tgcm_beta_init=cfg["model"]["tgcm"]["beta_init"],
+        tgcm_enabled=cfg["model"]["tgcm"].get("enabled", True),
     ).to(device)
+
+    text_encoder = None
+    if text_mode == "tokens":
+        text_encoder = FrozenBertTextEncoder(
+            model_name=cfg["text"]["model_name"],
+            pool=cfg["text"]["pool"],
+            freeze=cfg["text"]["freeze"],
+        ).to(device)
+        text_encoder.eval()
 
     print(f"[info] model params: {count_parameters(model)/1e6:.2f}M "
           f"(trainable: {count_parameters(model, True)/1e6:.2f}M)")
 
     # --------- data ---------
+    tokenizer = text_encoder.tokenizer if text_encoder is not None else None
     image_glob    = cfg["data"].get("image_glob",    "ISIC_*.jpg")
     mask_template = cfg["data"].get("mask_template", "{stem}_segmentation.png")
     train_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="train",
+        captions_jsonl=cfg["data"]["captions_jsonl"],
         transform=train_transform(cfg["data"]["image_size"]),
-        text_mode="none",
+        text_mode=text_mode,
+        tokenizer=tokenizer,
+        text_max_length=cfg["text"]["max_length"],
+        text_features_cache=cfg["data"].get("text_features_cache"),
+        require_caption=True,
         image_glob=image_glob,
         mask_template=mask_template,
     )
     val_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="val",
+        captions_jsonl=cfg["data"]["captions_jsonl"],
         transform=val_transform(cfg["data"]["image_size"]),
-        text_mode="none",
+        text_mode=text_mode,
+        tokenizer=tokenizer,
+        text_max_length=cfg["text"]["max_length"],
+        text_features_cache=cfg["data"].get("text_features_cache"),
+        require_caption=True,
         image_glob=image_glob,
         mask_template=mask_template,
     )
@@ -210,6 +243,8 @@ def main():
 
         # ---- train epoch ----
         model.train()
+        if text_encoder is not None:
+            text_encoder.eval()
         loss_meter = AverageMeter()
         t0 = time.time()
         accum_steps = max(1, cfg["train"].get("grad_accum_steps", 1))
@@ -217,11 +252,19 @@ def main():
             image = batch["image"].to(device, non_blocking=True)
             mask = batch["mask"].to(device, non_blocking=True)
 
+            if text_mode == "tokens":
+                input_ids = batch["input_ids"].to(device, non_blocking=True)
+                attn_mask = batch["attention_mask"].to(device, non_blocking=True)
+                with torch.no_grad():
+                    text_pooled, _ = text_encoder(input_ids, attn_mask)
+            else:
+                text_pooled = batch["text_pooled"].to(device, non_blocking=True)
+
             if micro_step % accum_steps == 0:
                 optimizer.zero_grad(set_to_none=True)
 
             with torch.cuda.amp.autocast(enabled=use_amp):
-                output = model(image)
+                output = model(image, text_pooled)
                 loss = criterion(output, mask) / accum_steps
             scaler.scale(loss).backward()
 
@@ -248,11 +291,20 @@ def main():
             for batch in val_loader:
                 image = batch["image"].to(device, non_blocking=True)
                 mask = batch["mask"].to(device, non_blocking=True)
+                if text_mode == "tokens":
+                    input_ids = batch["input_ids"].to(device, non_blocking=True)
+                    attn_mask = batch["attention_mask"].to(device, non_blocking=True)
+                    text_pooled, _ = text_encoder(input_ids, attn_mask)
+                else:
+                    text_pooled = batch["text_pooled"].to(device, non_blocking=True)
                 with torch.cuda.amp.autocast(enabled=use_amp):
-                    output = model(image)
+                    output = model(image, text_pooled)
                 logits = first_scale(output)
                 b_tp, b_fp, b_fn, b_tn = binary_confusion_counts(logits, mask)
-                tp += b_tp; fp += b_fp; fn += b_fn; tn += b_tn
+                tp += b_tp
+                fp += b_fp
+                fn += b_fn
+                tn += b_tn
 
         val_metrics = vmunet_metrics_from_counts(tp, fp, fn, tn)
         val_miou = val_metrics["miou"].item()
@@ -280,6 +332,8 @@ def main():
             writer.add_scalar("val/accuracy", val_accuracy, epoch)
             writer.add_scalar("val/specificity", val_specificity, epoch)
             writer.add_scalar("val/sensitivity", val_sensitivity, epoch)
+            writer.add_scalar("val/dice", val_f1_or_dsc, epoch)
+            writer.add_scalar("val/iou", val_miou, epoch)
             writer.add_scalar("train/lr", lr_now, epoch)
             writer.add_scalar("time/epoch_seconds", epoch_time, epoch)
         append_history(history_csv, {

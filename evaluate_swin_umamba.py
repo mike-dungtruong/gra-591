@@ -49,6 +49,8 @@ def main():
         split="val",
         transform=val_transform(cfg["data"]["image_size"]),
         text_mode="none",
+        image_glob=cfg["data"].get("image_glob", "ISIC_*.jpg"),
+        mask_template=cfg["data"].get("mask_template", "{stem}_segmentation.png"),
     )
     val_loader = DataLoader(
         val_ds, batch_size=cfg["train"]["batch_size"], shuffle=False,

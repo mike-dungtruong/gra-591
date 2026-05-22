@@ -133,6 +133,8 @@ def main():
 
     # --------- data ---------
     tokenizer = text_encoder.tokenizer if text_encoder is not None else None
+    image_glob    = cfg["data"].get("image_glob",    "ISIC_*.jpg")
+    mask_template = cfg["data"].get("mask_template", "{stem}_segmentation.png")
     train_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="train",
@@ -143,6 +145,8 @@ def main():
         text_max_length=cfg["text"]["max_length"],
         text_features_cache=cfg["data"].get("text_features_cache"),
         require_caption=True,
+        image_glob=image_glob,
+        mask_template=mask_template,
     )
     val_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
@@ -154,6 +158,8 @@ def main():
         text_max_length=cfg["text"]["max_length"],
         text_features_cache=cfg["data"].get("text_features_cache"),
         require_caption=True,
+        image_glob=image_glob,
+        mask_template=mask_template,
     )
     print(f"[info] dataset sizes: train={len(train_ds)} val={len(val_ds)}")
 

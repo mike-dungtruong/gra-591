@@ -1,0 +1,55 @@
+run_name: swin_umamba_isic2018
+
+# ----- paths -----
+data:
+  isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2018
+  text_mode: "none"
+  image_size: 256
+  num_workers: 4
+  # ISIC 2018 uses integer filenames (0.png, 1.png, ...) instead of ISIC_*.jpg
+  image_glob: "*.png"
+  mask_template: "{stem}.png"
+
+# ----- checkpoint and logging -----
+output:
+  base_dir: ./runs
+  save_every_n_epochs: 1
+  keep_best: true
+  tensorboard: false
+
+# ----- model -----
+model:
+  pretrained_ckpt: ./checkpoints/pretrained/vmamba_tiny_e292.pth
+  num_input_channels: 3
+  num_classes: 1
+  feat_size: [48, 96, 192, 384, 768]
+  drop_path_rate: 0.0
+  deep_supervision: true
+
+# ----- training -----
+train:
+  epochs: 300
+  batch_size: 32
+  grad_accum_steps: 1
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-2
+  scheduler: cosine_annealing
+  scheduler_t_max: 50
+  scheduler_eta_min: 1.0e-5
+  freeze_encoder_epochs: 10
+  amp: true
+  seed: 42
+  max_hours: 11.5
+  patience: 50
+
+# ----- loss -----
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+  deep_supervision_weights: [1.0, 0.5, 0.25, 0.125]
+
+# ----- eval -----
+eval:
+  metrics: [dice, iou]
+  val_every_n_epochs: 1

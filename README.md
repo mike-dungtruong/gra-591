@@ -1,131 +1,174 @@
 # TextSwinUMamba
 
-Text-guided medical image segmentation. Adds a Text-Gated Channel Module (TGCM) into
-the decoder of [Swin-UMamba†](https://github.com/JiarunLiu/Swin-UMamba) for skin lesion
-segmentation on ISIC 2017, with GPT-4o-generated dermoscopy captions as text input.
+Text-guided medical image segmentation for ISIC 2017. This project adds a
+Text-Gated Channel Module (TGCM) to the Swin-UMamba-D decoder so dermoscopy
+captions can guide lesion segmentation through frozen BERT features.
 
-The encoder is unchanged from Swin-UMamba† so VMamba-Tiny ImageNet pretrained weights
-load cleanly. The decoder consumes pooled BERT features of the per-image caption at
-every upsampling stage via TGCM (depthwise-conv fusion gated by text, ViTexNet-style).
+The Swin-UMamba encoder stays compatible with VMamba-Tiny ImageNet pretrained
+weights. TGCM consumes the pooled BERT embedding for each image caption at every
+decoder upsampling stage.
 
-## Repo layout
+## Repo Layout
 
-```
+```text
 TextSwinUMamba/
-├── configs/isic2017.yaml          # all hyperparameters
-├── models/
-│   ├── text_encoder.py            # frozen BERT-base wrapper
-│   ├── tgcm.py                    # Text-Gated Channel Module (our contribution)
-│   ├── text_swin_umamba_d.py      # TextSwinUMambaD = encoder + TGCM-decoder
-│   └── swin_umamba_d.py           # upstream Swin-UMamba net code (Apache 2.0)
-├── data/                          # ISIC dataset, transforms, caption loader
-├── utils/                         # losses, metrics, checkpoint, misc
+├── configs/
+│   ├── isic2017.yaml                 # TextSwinUMambaD config
+│   ├── isic2017_swin_umamba.yaml     # no-text SwinUMamba baseline
+│   └── isic2017_swin_umamba_d.yaml   # no-text SwinUMamba-D baseline
+├── src/
+│   ├── models/                       # model definitions
+│   ├── data/                         # ISIC dataset, transforms, captions
+│   └── utils/                        # losses, metrics, checkpointing, logging
 ├── scripts/
 │   ├── precompute_text_features.py
 │   └── verify_caption_coverage.py
 ├── THIRD_PARTY_LICENSES/
-│   └── Swin-UMamba-LICENSE        # Apache 2.0, preserved as required
-├── notebooks/colab_train.ipynb    # Colab entry: clone from git, Drive for artifacts
-├── train.py
-└── evaluate.py
+│   └── Swin-UMamba-LICENSE
+├── train.py                          # TextSwinUMambaD training
+├── train_swin_umamba.py              # SwinUMamba baseline training
+├── train_swin_umamba_d.py            # SwinUMamba-D baseline training
+├── evaluate.py                       # TextSwinUMambaD evaluation
+├── evaluate_swin_umamba.py
+└── evaluate_swin_umamba_d.py
 ```
 
-## What lives in git vs. Drive
+Important model files are `src/models/text_swin_umamba_d.py`,
+`src/models/tgcm.py`, `src/models/text_encoder.py`, and
+`src/models/swin_umamba_d.py`. The upstream Swin-UMamba code is redistributed
+under Apache 2.0; preserve the license context when editing it.
 
-This repo (code only) lives in **git / GitHub**. Everything large or per-run lives in
-**Google Drive** and is gitignored:
+Local-only research assets may exist in `caption_gen/`, `notebooks/`, `docs/`,
+`specs/`, `papers/`, `outputs/`, `cache/`, `checkpoints/`, and `runs/`.
 
-| Goes in git                 | Goes in Drive                          |
-|-----------------------------|----------------------------------------|
-| `.py`, `.yaml`, `.ipynb`    | `runs/<run_name>/` (checkpoints, logs) |
-| `README.md`, `.gitignore`   | `cache/text_features.pt`               |
-| `requirements.txt`          | `datasets/isic2017/`                   |
-|                             | `captions/captions.jsonl`              |
-|                             | `pretrained/vmamba_tiny_e292.pth`      |
-|                             | TensorBoard event files                |
+## What Lives In Git
 
-`models/swin_umamba_d.py` is upstream Swin-UMamba code (Apache 2.0), redistributed
-under the terms of that license; the full license text is preserved under
-`THIRD_PARTY_LICENSES/Swin-UMamba-LICENSE` and the file's docstring lists the
-modifications we made to detach it from nnUNet.
+Tracked source should stay code-focused:
 
-## Local setup (one time)
+| Goes in git | Stays local or in Drive |
+| --- | --- |
+| `src/`, `configs/isic2017*.yaml`, entrypoint scripts | `runs/<run_name>/` checkpoints and logs |
+| `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` | `cache/text_features.pt` |
+| `requirements.txt`, `environment.yml` | ISIC images, masks, captions, pretrained weights |
+| `THIRD_PARTY_LICENSES/` | TensorBoard files and generated outputs |
+
+Do not commit `OPENAI_API_KEY`, datasets, checkpoints, generated captions with
+sensitive metadata, or text-feature caches.
+
+## Setup
+
+Create the canonical conda environment:
 
 ```bash
-# 1. Clone this repo
-git clone <your-remote-url> TextSwinUMamba
-cd TextSwinUMamba
-
-# 2. Create the conda environment (mirrors Swin-UMamba's tested combo:
-#    Python 3.10, torch 2.0.1, CUDA 11.8, causal-conv1d 1.1.1, mamba-ssm 1.1.1).
 conda env create -f environment.yml
 conda activate textswinumamba
-
-# 3. Confirm the mamba kernel imports cleanly under these pins.
-python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn; print('mamba-ssm OK')"
-
-# 4. (Optional) sanity check captions coverage
-python scripts/verify_caption_coverage.py \
-    --isic_root /path/to/isic2017 \
-    --captions  /path/to/captions.jsonl
-
-# 5. Precompute BERT text features (one time, ~1 min on GPU)
-python scripts/precompute_text_features.py \
-    --captions /path/to/captions.jsonl \
-    --out      cache/text_features.pt
 ```
 
-If you'd rather use plain pip instead of conda:
+For pip-only setup, install the CUDA 11.8 PyTorch wheels first:
+
 ```bash
-python3.10 -m venv .venv && source .venv/bin/activate
+python3.10 -m venv .venv
+source .venv/bin/activate
 pip install torch==2.0.1 torchvision==0.15.2 --extra-index-url https://download.pytorch.org/whl/cu118
 pip install -r requirements.txt
 ```
 
-## Initialize git and push to remote
+Verify the Mamba kernel after installing dependencies:
 
 ```bash
-cd TextSwinUMamba
-git init
-git add .
-git commit -m "Initial commit: TextSwinUMambaD scaffold"
-git branch -M main
-git remote add origin git@github.com:<you>/TextSwinUMamba.git
-git push -u origin main
+python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn; print('mamba-ssm OK')"
 ```
 
-The `.gitignore` already excludes datasets, checkpoints, large weights, and the
-generated `models/swin_umamba_d.py`.
+## Data Preparation
+
+Check caption coverage:
+
+```bash
+python scripts/verify_caption_coverage.py \
+  --isic_root /path/to/isic2017 \
+  --captions /path/to/captions.jsonl
+```
+
+Precompute BERT features for faster training:
+
+```bash
+python scripts/precompute_text_features.py \
+  --captions /path/to/captions.jsonl \
+  --out cache/text_features.pt
+```
+
+The canonical text config keys are in `configs/isic2017.yaml`:
+`data.isic_root`, `data.captions_jsonl`, `data.text_features_cache`,
+`model.pretrained_ckpt`, and `output.base_dir`.
 
 ## Training
 
+Train TextSwinUMambaD:
+
 ```bash
-# Local
 python train.py --config configs/isic2017.yaml
-
-# Resume (auto-detects last.pth in run_dir, or pass --resume <path>)
 python train.py --config configs/isic2017.yaml --resume auto
-
-# Colab: open notebooks/colab_train.ipynb
 ```
 
-## Colab workflow
+Train no-text baselines:
 
-1. Push this repo to GitHub.
-2. Put dataset + captions + pretrained weights into Drive at
-   `MyDrive/TextSwinUMamba/{datasets,captions,pretrained}/`.
-3. Open `notebooks/colab_train.ipynb`. It will:
-   - Mount Drive (for artifacts).
-   - `git clone` this repo from GitHub into `/content/`.
-   - Precompute text features into Drive (cached across sessions).
-   - Train with `--resume auto`, writing checkpoints + TensorBoard logs to Drive.
-4. If Colab disconnects, re-run the notebook from top to bottom — everything is
-   idempotent and training resumes from `last.pth`.
+```bash
+python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
+python train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
+```
+
+Training writes directly to `runs/<run_name>/` by default:
+`last.pth`, `best.pth`, `config.yaml`, `training_log.txt`, `history.csv`,
+`progress.png`, and optionally `tb/`.
+
+## Evaluation
+
+Evaluate TextSwinUMambaD:
+
+```bash
+python evaluate.py \
+  --config configs/isic2017.yaml \
+  --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+```
+
+Evaluate baselines:
+
+```bash
+python evaluate_swin_umamba.py \
+  --config configs/isic2017_swin_umamba.yaml \
+  --ckpt runs/swin_umamba_isic2017/best.pth
+
+python evaluate_swin_umamba_d.py \
+  --config configs/isic2017_swin_umamba_d.yaml \
+  --ckpt runs/swin_umamba_d_isic2017/best.pth
+```
+
+## ISIC 2017 Evaluation Snapshot
+
+Current `best.pth` results on the 650-case validation split:
+
+| Model | Epoch | mIoU(%)↑ | DSC(%)↑ | Acc(%)↑ | Spe(%)↑ | Sen(%)↑ |
+|-------|------:|---------:|--------:|--------:|--------:|--------:|
+| SwinUMamba | 42 | 80.56 | 89.23 | 96.42 | 97.96 | 88.73 |
+| SwinUMambaD | 41 | 80.68 | 89.31 | 96.45 | 98.03 | 88.61 |
+| TextSwinUMambaD | 40 | 82.20 | 90.23 | 96.74 | 98.08 | 90.06 |
+
+## Colab Workflow
+
+1. Push the tracked repo to GitHub.
+2. Put datasets, captions, pretrained weights, cache, and run outputs in Drive.
+3. Override paths in `configs/isic2017.yaml` or notebook cells as needed.
+4. Train with `--resume auto`; rerunning after disconnect resumes from
+   `runs/<run_name>/last.pth`.
+
+## Agent Docs
+
+`AGENTS.md` is the canonical cross-agent guide. `CLAUDE.md` mirrors the same
+facts for Claude Code. Keep both aligned with the actual `src/` layout and CLI
+flags when changing project structure.
 
 ## Acknowledgements
 
-The encoder, decoder, and VSS / SS2D blocks in `models/swin_umamba_d.py` come from
-[Liu et al. 2024 — Swin-UMamba](https://github.com/JiarunLiu/Swin-UMamba) with the
-nnUNet integration removed. The upstream code is Apache 2.0 licensed and the full
-license is preserved at `THIRD_PARTY_LICENSES/Swin-UMamba-LICENSE`. TGCM is inspired
-by ViTexNet (Bhardwaj et al., MICCAI 2025).
+The Swin-UMamba and VMamba components come from Liu et al. 2024. The upstream
+license is preserved in `THIRD_PARTY_LICENSES/Swin-UMamba-LICENSE`. TGCM is
+inspired by ViTexNet.

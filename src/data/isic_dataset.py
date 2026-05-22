@@ -1,4 +1,4 @@
-"""ISIC 2017 Dataset that yields (image, mask, caption_input_ids, caption_attn_mask, image_id).
+"""ISIC Dataset that yields (image, mask, caption_input_ids, caption_attn_mask, image_id).
 
 Three text modes:
 - `text_mode="tokens"` (default): tokenizes captions on the fly with a provided tokenizer
@@ -8,8 +8,9 @@ Three text modes:
 - `text_mode="none"`: no text processing; returns only image, mask, and image_id.
    Use this for baseline models (SwinUMamba, SwinUMamba-D) that have no text branch.
 
-The dataset auto-discovers `ISIC_XXXXXXX.jpg` images in `<root>/<split>/images/` and
-their masks at `<root>/<split>/masks/ISIC_XXXXXXX_segmentation.png`.
+Supports multiple ISIC dataset versions via `image_glob` and `mask_template`:
+  ISIC 2017 (default): image_glob="ISIC_*.jpg", mask_template="{stem}_segmentation.png"
+  ISIC 2018:           image_glob="*.png",       mask_template="{stem}.png"
 """
 from __future__ import annotations
 
@@ -38,6 +39,8 @@ class ISICDataset(Dataset):
         text_max_length: int = 64,
         text_features: Optional[Dict[str, dict]] = None,  # required if text_mode='features'
         require_caption: bool = True,
+        image_glob: str = "ISIC_*.jpg",      # ISIC 2018: "*.png"
+        mask_template: str = "{stem}_segmentation.png",  # ISIC 2018: "{stem}.png"
     ) -> None:
         super().__init__()
         assert split in {"train", "val"}, split
@@ -65,9 +68,9 @@ class ISICDataset(Dataset):
 
         # Discover image files and pair them with masks + captions.
         records = []
-        for img_path in sorted(img_dir.glob("ISIC_*.jpg")):
-            image_id = img_path.stem  # 'ISIC_0000001'
-            mask_path = mask_dir / f"{image_id}_segmentation.png"
+        for img_path in sorted(img_dir.glob(image_glob)):
+            image_id = img_path.stem
+            mask_path = mask_dir / mask_template.format(stem=image_id)
             if not mask_path.exists():
                 continue
             if text_mode != "none" and require_caption and image_id not in self.captions:
@@ -151,6 +154,8 @@ def build_isic_dataset(
     text_max_length: int = 64,
     text_features_cache: Optional[str | Path] = None,
     require_caption: bool = True,
+    image_glob: str = "ISIC_*.jpg",
+    mask_template: str = "{stem}_segmentation.png",
 ) -> ISICDataset:
     """Convenience builder used by train.py and baseline training scripts."""
     captions = None
@@ -173,4 +178,6 @@ def build_isic_dataset(
         text_max_length=text_max_length,
         text_features=text_features,
         require_caption=require_caption,
+        image_glob=image_glob,
+        mask_template=mask_template,
     )

@@ -66,11 +66,9 @@ docs/*
 caption_gen/
 configs/caption_gen.yaml
 scripts/make_dummy_captions.py
-scripts/verify_caption_coverage.py
 
 # ----- AI assistant instruction files (local-only) -----
 GEMINI.md
-AGENTS.md
 
 # ----- Misc (optional: comment out if you want to commit) -----
 NOTES.md

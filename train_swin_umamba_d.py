@@ -94,17 +94,23 @@ def main():
           f"(trainable: {count_parameters(model, True)/1e6:.2f}M)")
 
     # --------- data ---------
+    image_glob    = cfg["data"].get("image_glob",    "ISIC_*.jpg")
+    mask_template = cfg["data"].get("mask_template", "{stem}_segmentation.png")
     train_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="train",
         transform=train_transform(cfg["data"]["image_size"]),
         text_mode="none",
+        image_glob=image_glob,
+        mask_template=mask_template,
     )
     val_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="val",
         transform=val_transform(cfg["data"]["image_size"]),
         text_mode="none",
+        image_glob=image_glob,
+        mask_template=mask_template,
     )
     print(f"[info] dataset sizes: train={len(train_ds)} val={len(val_ds)}")
 

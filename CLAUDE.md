@@ -1,83 +1,80 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file mirrors `AGENTS.md` for Claude Code. Keep both files aligned when
+project structure, commands, or artifact paths change.
 
 ## Commands
 
-### Training
 ```bash
-# Fresh run
+# Text-guided model
 python train.py --config configs/isic2017.yaml
-
-# Resume from last checkpoint (auto-detects runs/<run_name>/checkpoints/last.pth)
 python train.py --config configs/isic2017.yaml --resume auto
+python evaluate.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
 
-# Resume from specific checkpoint
-python train.py --config configs/isic2017.yaml --resume runs/my_run/checkpoints/last.pth
+# No-text baselines
+python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
+python train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
+python evaluate_swin_umamba.py --config configs/isic2017_swin_umamba.yaml --ckpt runs/swin_umamba_isic2017/best.pth
+python evaluate_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml --ckpt runs/swin_umamba_d_isic2017/best.pth
 ```
 
-### Evaluation
+Prepare text features:
+
 ```bash
-python evaluate.py --config configs/isic2017.yaml --ckpt runs/<run_name>/checkpoints/best.pth
+python scripts/verify_caption_coverage.py --isic_root <isic2017> --captions <captions.jsonl>
+python scripts/precompute_text_features.py --captions <captions.jsonl> --out cache/text_features.pt
 ```
 
-### Data preparation (one-time)
+Verify the environment:
+
 ```bash
-# Precompute BERT features for all captions (recommended before training)
-python scripts/precompute_text_features.py \
-  --captions <path/to/captions.jsonl> \
-  --out cache/text_features.pt
+python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn; print('mamba-ssm OK')"
 ```
-
-> Caption generation pipeline (`caption_gen/`) is local-only and not tracked in git.
 
 ## Architecture
 
-**TextSwinUMambaD** (`src/models/text_swin_umamba_d.py`) is the main model:
-- **Encoder**: `VSSMEncoder` from `src/models/swin_umamba_d.py` (upstream Swin-UMamba, Apache 2.0, frozen for the first N epochs per config)
-- **Decoder**: `TextUNetResDecoder` — a modified UNet residual decoder that injects a `TGCM` at each upsampling stage
-- **Text branch**: `FrozenBertTextEncoder` (`src/models/text_encoder.py`) wraps BERT-base-uncased; always frozen during training; outputs `(pooled [B,768], tokens [B,L,768])`
+`TextSwinUMambaD` lives in `src/models/text_swin_umamba_d.py`.
 
-**TGCM** (`src/models/tgcm.py`) is the core novel module:
-- Takes image features `(B, H, W, C)` and text pooled embedding `(B, 768)`
-- Projects text → K scalar weights → K parallel depthwise 1D convolutions on flattened spatial dimension
-- Two iterative refinement passes (ViTexNet-style)
-- Learnable residual mix via `beta` parameter
+- Encoder: `VSSMEncoder` from `src/models/swin_umamba_d.py`.
+- Decoder: `TextUNetResDecoder`, a Swin-UMamba-D decoder with TGCM injected at
+  each upsampling stage.
+- Text branch: `FrozenBertTextEncoder` from `src/models/text_encoder.py`.
+- TGCM: `src/models/tgcm.py`, using pooled BERT features to gate parallel
+  depthwise convolutions over image features.
 
-**Deep supervision**: The decoder outputs a list of feature maps at 4 scales; `DiceBCEWithDeepSupervision` in `src/utils/losses.py` applies weighted loss at each scale. `src/utils/metrics.py:first_scale()` extracts the highest-resolution output for metric computation.
+Deep supervision uses `DiceBCEWithDeepSupervision` in `src/utils/losses.py`.
+Metric code uses `first_scale()` from `src/utils/metrics.py` to evaluate the
+highest-resolution output.
 
-### Text input modes (`src/data/isic_dataset.py`)
-- `"features"`: Loads precomputed `.pt` cache (dict of `image_id → {pooled, tokens, attention_mask}`). Fast; recommended for Colab.
-- `"tokens"`: Tokenizes and runs BERT forward on every batch. Simpler but slower.
+## Configuration And Artifacts
 
-Set via `data.text_mode` in the YAML config.
+Main config keys in `configs/isic2017.yaml`:
 
-## Data & Artifacts
+- `data.isic_root`
+- `data.captions_jsonl`
+- `data.text_features_cache`
+- `model.pretrained_ckpt`
+- `output.base_dir`
 
-**Git-tracked**: `src/` (models, data, utils), `configs/isic2017.yaml`, `scripts/precompute_text_features.py`, `train.py`, `evaluate.py`, `requirements.txt`
+Training writes directly to `runs/<run_name>/`: `last.pth`, `best.pth`,
+`config.yaml`, `training_log.txt`, `history.csv`, `progress.png`, and optional
+`tb/`.
 
-**Not git-tracked** (store in Google Drive or local paths outside the repo):
-- `datasets/isic2017/` — raw images and masks
-- `captions/captions.jsonl` — GPT-4o-generated dermoscopy captions (one JSON object per line: `image_id`, `caption`)
-- `cache/text_features.pt` — precomputed BERT embeddings
-- `pretrained/vmamba_tiny_e292.pth` — VMamba-Tiny ImageNet pretrained weights (Swin-UMamba encoder init)
-- `runs/<run_name>/` — checkpoints (`last.pth`, `best.pth`) and TensorBoard logs
-
-Paths for all of the above are configured in `configs/isic2017.yaml` under `data.root`, `data.captions`, `data.text_features_cache`, `model.pretrained_encoder`, and `training.run_dir`.
+Do not commit datasets, checkpoints, pretrained weights, TensorBoard logs,
+caption caches, text-feature caches, generated outputs, or `OPENAI_API_KEY`.
 
 ## Key Files
 
 | File | Role |
-|------|------|
-| `train.py` | Main training loop; AMP, cosine LR + warmup, encoder freeze schedule, wall-clock budget |
-| `evaluate.py` | Standalone eval; reports Dice and IoU |
-| `configs/isic2017.yaml` | All hyperparameters and paths |
-| `src/models/text_swin_umamba_d.py` | Full model assembly |
-| `src/models/tgcm.py` | Text-Gated Channel Module (novel contribution) |
-| `src/models/swin_umamba_d.py` | Upstream Swin-UMamba (do not modify; Apache 2.0) |
-| `src/models/text_encoder.py` | Frozen BERT wrapper |
-| `src/utils/checkpoint.py` | Atomic save/load with full RNG state for deterministic resume |
-| `src/data/isic_dataset.py` | Dataset class; supports `"features"` and `"tokens"` text modes |
-| `scripts/precompute_text_features.py` | One-time BERT feature precomputation |
+| --- | --- |
+| `train.py` | TextSwinUMambaD training loop |
+| `evaluate.py` | TextSwinUMambaD evaluation |
+| `configs/isic2017.yaml` | Main text-guided config |
+| `src/models/text_swin_umamba_d.py` | Full text-guided model |
+| `src/models/tgcm.py` | Text-Gated Channel Module |
+| `src/models/swin_umamba_d.py` | Upstream Swin-UMamba-D code; preserve license context |
+| `src/data/isic_dataset.py` | Dataset builder with text modes |
+| `src/utils/checkpoint.py` | Atomic checkpoint save/load |
 
-> Local-only (not in git): `caption_gen/`, `notebooks/`, `papers/`, `configs/caption_gen.yaml`
+Local-only folders may include `caption_gen/`, `notebooks/`, `docs/`, `specs/`,
+`papers/`, `outputs/`, `cache/`, `checkpoints/`, and `runs/`.
