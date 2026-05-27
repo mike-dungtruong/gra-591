@@ -14,6 +14,7 @@ decoder upsampling stage.
 TextSwinUMamba/
 ├── configs/
 │   ├── isic2017.yaml                 # TextSwinUMambaD config
+│   ├── isic2017_text_swin_umamba.yaml # TextSwinUMamba CNN-decoder config
 │   ├── isic2017_swin_umamba.yaml     # no-text SwinUMamba baseline
 │   └── isic2017_swin_umamba_d.yaml   # no-text SwinUMamba-D baseline
 ├── src/
@@ -26,9 +27,11 @@ TextSwinUMamba/
 ├── THIRD_PARTY_LICENSES/
 │   └── Swin-UMamba-LICENSE
 ├── train.py                          # TextSwinUMambaD training
+├── train_text_swin_umamba.py         # TextSwinUMamba CNN-decoder training
 ├── train_swin_umamba.py              # SwinUMamba baseline training
 ├── train_swin_umamba_d.py            # SwinUMamba-D baseline training
 ├── evaluate.py                       # TextSwinUMambaD evaluation
+├── evaluate_text_swin_umamba.py      # TextSwinUMamba CNN-decoder evaluation
 ├── evaluate_swin_umamba.py
 └── evaluate_swin_umamba_d.py
 ```
@@ -117,6 +120,13 @@ python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
 python train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
 ```
 
+Train the text-guided CNN-decoder variant:
+
+```bash
+python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml
+python train_text_swin_umamba.py --config configs/isic2018_text_swin_umamba.yaml
+```
+
 Training writes directly to `runs/<run_name>/` by default:
 `last.pth`, `best.pth`, `config.yaml`, `training_log.txt`, `history.csv`,
 `progress.png`, and optionally `tb/`.
@@ -141,6 +151,18 @@ python evaluate_swin_umamba.py \
 python evaluate_swin_umamba_d.py \
   --config configs/isic2017_swin_umamba_d.yaml \
   --ckpt runs/swin_umamba_d_isic2017/best.pth
+```
+
+Evaluate the text-guided CNN-decoder variant:
+
+```bash
+python evaluate_text_swin_umamba.py \
+  --config configs/isic2017_text_swin_umamba.yaml \
+  --ckpt runs/text_swin_umamba_isic2017/best.pth
+
+python evaluate_text_swin_umamba.py \
+  --config configs/isic2018_text_swin_umamba.yaml \
+  --ckpt runs/text_swin_umamba_isic2018/best.pth
 ```
 
 ## ISIC 2017 Evaluation Snapshot
