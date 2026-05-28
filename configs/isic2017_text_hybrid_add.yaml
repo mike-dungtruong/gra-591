@@ -1,0 +1,65 @@
+run_name: text_hybrid_add_isic2017
+
+data:
+  isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2017
+  captions_jsonl: /Users/mike/Documents/GRA591/code/TextSwinUMamba/outputs/captions/captions.jsonl
+  text_features_cache: /Users/mike/Documents/GRA591/code/TextSwinUMamba/cache/text_features.pt
+  image_size: 256
+  num_workers: 4
+
+output:
+  base_dir: ./runs
+  save_every_n_epochs: 1
+  keep_best: true
+  tensorboard: false
+
+model:
+  pretrained_ckpt: ./checkpoints/pretrained/vmamba_tiny_e292.pth
+  num_input_channels: 3
+  num_classes: 1
+  features_per_stage: [96, 192, 384, 768]
+  d_state: 16
+  drop_path_rate: 0.2
+  deep_supervision: true
+  text_fusion:
+    enabled: true
+    method: add
+    stages: [0, 1, 2, 3]
+    alpha_init: 0.1
+  tgcm:
+    enabled: true
+    k_filters: 4
+    kernel_size: 3
+    iterative: true
+    beta_init: 0.1
+
+text:
+  model_name: bert-base-uncased
+  max_length: 64
+  pool: mean
+  freeze: true
+
+train:
+  epochs: 300
+  batch_size: 32
+  grad_accum_steps: 1
+  optimizer: adamw
+  lr: 1.0e-3
+  weight_decay: 1.0e-2
+  scheduler: cosine_annealing
+  scheduler_t_max: 50
+  scheduler_eta_min: 1.0e-5
+  freeze_encoder_epochs: 10
+  amp: true
+  seed: 42
+  max_hours: 11.5
+  patience: 50
+
+loss:
+  dice_weight: 1.0
+  bce_weight: 1.0
+  deep_supervision_weights: [1.0, 0.5, 0.25, 0.125]
+
+eval:
+  metrics: [dice, iou]
+  val_every_n_epochs: 1

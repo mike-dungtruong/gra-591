@@ -1,0 +1,43 @@
+# Caption generation parameters — Strategy A (strict no-leak) — ISIC 2018
+#
+# ISIC 2018 uses integer PNG filenames (0.png, 1.png, ...) for both images
+# and masks, with no "_segmentation" suffix on masks.
+# No metadata.csv is available, so always use --no-stratify.
+#
+# Usage:
+#   export OPENAI_API_KEY='sk-...'
+#   # dry-run first
+#   python caption_gen/generate.py --config configs/caption_gen_isic2018.yaml \
+#       --split train --n 5 --no-stratify --dry-run
+#
+#   python caption_gen/generate.py --config configs/caption_gen_isic2018.yaml \
+#       --split train --n 1886 --no-stratify --resume \
+#       --out outputs/captions/captions_isic2018_train.jsonl \
+#       --summary outputs/captions/caption_summary_isic2018_train.json
+#
+#   python caption_gen/generate.py --config configs/caption_gen_isic2018.yaml \
+#       --split val --n 808 --no-stratify --resume \
+#       --out outputs/captions/captions_isic2018_val.jsonl \
+#       --summary outputs/captions/caption_summary_isic2018_val.json
+#
+#   cat outputs/captions/captions_isic2018_train.jsonl \
+#       outputs/captions/captions_isic2018_val.jsonl \
+#       > outputs/captions/captions_isic2018.jsonl
+
+api:
+  model: gpt-4o
+  temperature: 0.1
+  max_tokens: 80
+  timeout: 60.0
+  max_retries: 6
+
+sampling:
+  seed: 42
+
+output:
+  dir: ./outputs/captions
+
+data:
+  isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2018
+  image_glob: "*.png"
+  mask_template: "{stem}.png"

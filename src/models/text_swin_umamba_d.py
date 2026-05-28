@@ -35,6 +35,91 @@ class TextIdentity(nn.Module):
         return x_img
 
 
+class TextStageFusion(nn.Module):
+    """LViT-style encoder fusion for NHWC VMamba feature maps."""
+
+    def __init__(
+        self,
+        dim: int,
+        text_dim: int,
+        method: str = "film",
+        alpha_init: float = 0.1,
+    ) -> None:
+        super().__init__()
+        if method not in {"add", "film"}:
+            raise ValueError(f"Unsupported text fusion method: {method}")
+        self.method = method
+        out_dim = dim if method == "add" else 2 * dim
+        self.proj = nn.Linear(text_dim, out_dim)
+        self.alpha = nn.Parameter(torch.tensor(float(alpha_init)))
+
+        # Start from the pretrained image-only encoder behavior; the projection
+        # learns text conditioning without perturbing the first forward pass.
+        nn.init.zeros_(self.proj.weight)
+        nn.init.zeros_(self.proj.bias)
+
+    def forward(self, x: torch.Tensor, text_pooled: torch.Tensor) -> torch.Tensor:
+        if self.method == "add":
+            bias = self.proj(text_pooled).unsqueeze(1).unsqueeze(1)
+            return x + self.alpha * bias
+
+        gamma, beta = self.proj(text_pooled).chunk(2, dim=-1)
+        gamma = gamma.unsqueeze(1).unsqueeze(1)
+        beta = beta.unsqueeze(1).unsqueeze(1)
+        return x * (1.0 + self.alpha * gamma) + self.alpha * beta
+
+
+class TextVSSMEncoder(VSSMEncoder):
+    """VSSMEncoder with optional text fusion before selected VSS stages."""
+
+    def __init__(
+        self,
+        *args,
+        text_dim: int = 768,
+        fusion_enabled: bool = False,
+        fusion_method: str = "film",
+        fusion_stages: Sequence[int] = (0, 1, 2, 3),
+        fusion_alpha_init: float = 0.1,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.fusion_enabled = fusion_enabled
+        self.fusion_stages = set(int(s) for s in fusion_stages)
+        self.text_fusions = nn.ModuleDict()
+        if fusion_enabled:
+            for stage_idx in sorted(self.fusion_stages):
+                if stage_idx < 0 or stage_idx >= self.num_layers:
+                    raise ValueError(
+                        f"fusion stage {stage_idx} is outside encoder stages 0..{self.num_layers - 1}"
+                    )
+                self.text_fusions[str(stage_idx)] = TextStageFusion(
+                    dim=self.dims[stage_idx],
+                    text_dim=text_dim,
+                    method=fusion_method,
+                    alpha_init=fusion_alpha_init,
+                )
+
+    def forward(self, x: torch.Tensor, text_pooled: torch.Tensor | None = None) -> List[torch.Tensor]:
+        x_ret = [x]
+
+        x = self.patch_embed(x)
+        if self.ape:
+            x = x + self.absolute_pos_embed
+        x = self.pos_drop(x)
+
+        for s, layer in enumerate(self.layers):
+            if self.fusion_enabled and s in self.fusion_stages:
+                if text_pooled is None:
+                    raise ValueError("text_pooled is required when encoder text fusion is enabled")
+                x = self.text_fusions[str(s)](x, text_pooled)
+            x = layer(x)
+            x_ret.append(x.permute(0, 3, 1, 2))
+            if s < len(self.downsamples):
+                x = self.downsamples[s](x)
+
+        return x_ret
+
+
 class TextUNetResDecoder(nn.Module):
     """Mirror of the author's UNetResDecoder, plus a TGCM call per stage."""
 
@@ -171,14 +256,23 @@ class TextSwinUMambaD(nn.Module):
         tgcm_iterative: bool = True,
         tgcm_beta_init: float = 0.5,
         tgcm_enabled: bool = True,
+        text_fusion_enabled: bool = False,
+        text_fusion_method: str = "film",
+        text_fusion_stages: Sequence[int] = (0, 1, 2, 3),
+        text_fusion_alpha_init: float = 0.1,
     ) -> None:
         super().__init__()
-        self.vssm_encoder = VSSMEncoder(
+        self.vssm_encoder = TextVSSMEncoder(
             in_chans=num_input_channels,
             patch_size=4,
             depths=[2, 2, 9, 2],
             dims=96,
             drop_path_rate=drop_path_rate,
+            text_dim=text_dim,
+            fusion_enabled=text_fusion_enabled,
+            fusion_method=text_fusion_method,
+            fusion_stages=text_fusion_stages,
+            fusion_alpha_init=text_fusion_alpha_init,
         )
         self.decoder = TextUNetResDecoder(
             num_classes=num_classes,
@@ -197,14 +291,14 @@ class TextSwinUMambaD(nn.Module):
     def forward(
         self, image: torch.Tensor, text_pooled: torch.Tensor
     ) -> Union[torch.Tensor, List[torch.Tensor]]:
-        skips = self.vssm_encoder(image)
+        skips = self.vssm_encoder(image, text_pooled)
         return self.decoder(skips, text_pooled)
 
     @torch.no_grad()
     def freeze_encoder(self) -> None:
-        """Mirrors the author's policy: freeze everything in the encoder except patch_embed."""
+        """Freeze pretrained encoder weights while leaving new adapters trainable."""
         for name, param in self.vssm_encoder.named_parameters():
-            if "patch_embed" not in name:
+            if "patch_embed" not in name and "text_fusions" not in name:
                 param.requires_grad = False
 
     @torch.no_grad()
@@ -227,6 +321,10 @@ def build_text_swin_umamba_d(
     tgcm_iterative: bool = True,
     tgcm_beta_init: float = 0.5,
     tgcm_enabled: bool = True,
+    text_fusion_enabled: bool = False,
+    text_fusion_method: str = "film",
+    text_fusion_stages: Sequence[int] = (0, 1, 2, 3),
+    text_fusion_alpha_init: float = 0.1,
     pretrained_ckpt: str | None = None,
 ) -> TextSwinUMambaD:
     """Instantiate TextSwinUMambaD and optionally load VMamba-Tiny pretrained weights."""
@@ -243,6 +341,10 @@ def build_text_swin_umamba_d(
         tgcm_iterative=tgcm_iterative,
         tgcm_beta_init=tgcm_beta_init,
         tgcm_enabled=tgcm_enabled,
+        text_fusion_enabled=text_fusion_enabled,
+        text_fusion_method=text_fusion_method,
+        text_fusion_stages=text_fusion_stages,
+        text_fusion_alpha_init=text_fusion_alpha_init,
     )
     if pretrained_ckpt:
         model = load_pretrained_ckpt(

@@ -103,6 +103,7 @@ def main():
 
     # --------- model ---------
     text_dim = 768  # bert-base hidden size
+    text_fusion_cfg = cfg["model"].get("text_fusion", {})
     model = build_text_swin_umamba_d(
         num_input_channels=cfg["model"]["num_input_channels"],
         num_classes=cfg["model"]["num_classes"],
@@ -116,6 +117,10 @@ def main():
         tgcm_iterative=cfg["model"]["tgcm"]["iterative"],
         tgcm_beta_init=cfg["model"]["tgcm"]["beta_init"],
         tgcm_enabled=cfg["model"]["tgcm"].get("enabled", True),
+        text_fusion_enabled=text_fusion_cfg.get("enabled", False),
+        text_fusion_method=text_fusion_cfg.get("method", "film"),
+        text_fusion_stages=tuple(text_fusion_cfg.get("stages", [0, 1, 2, 3])),
+        text_fusion_alpha_init=text_fusion_cfg.get("alpha_init", 0.1),
         pretrained_ckpt=cfg["model"].get("pretrained_ckpt"),
     ).to(device)
 
