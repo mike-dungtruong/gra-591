@@ -157,7 +157,7 @@ def build_isic_dataset(
     image_glob: str = "ISIC_*.jpg",
     mask_template: str = "{stem}_segmentation.png",
 ) -> ISICDataset:
-    """Convenience builder used by train.py and baseline training scripts."""
+    """Convenience builder used by training entrypoints."""
     captions = None
     if text_mode != "none":
         if captions_jsonl is None:

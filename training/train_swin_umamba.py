@@ -1,30 +1,34 @@
-"""Training entry point for TextSwinUMamba (CNN decoder + TGCM text injection) on ISIC 2017.
+"""Training entry point for SwinUMamba (Mamba encoder + CNN decoder) on ISIC 2017.
 
-Identical to train.py except it loads TextSwinUMamba (CNN decoder) instead of
-TextSwinUMambaD (Mamba decoder). All other infrastructure is shared.
+This is the baseline without text guidance. Compared to TextSwinUMambaD:
+  - Uses SwinUMamba (CNN decoder) instead of TextSwinUMambaD
+  - No text encoder, no captions, no text features
+  - Dataset loaded with text_mode="none"
 
 Usage:
-    python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml
-    python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml --resume auto
+    python training/train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
+    python training/train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml --resume auto
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import signal
+import sys
 import time
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import torch
-import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
 from src.data.isic_dataset import build_isic_dataset
 from src.data.transforms import train_transform, val_transform
-from src.models.text_encoder import FrozenBertTextEncoder
-from src.models.text_swin_umamba import build_text_swin_umamba
+from src.models.swin_umamba import build_swin_umamba
 from src.utils.checkpoint import (
     find_latest_checkpoint,
     load_checkpoint,
@@ -48,8 +52,6 @@ def parse_args():
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--resume", default="auto",
                    help="'auto' (load last.pth if present), 'none', or path to checkpoint")
-    p.add_argument("--text_mode", default=None, choices=[None, "tokens", "features"],
-                   help="Override text mode from config")
     return p.parse_args()
 
 
@@ -72,10 +74,6 @@ def main():
     cfg = load_config(args.config)
     set_seed(cfg["train"]["seed"])
 
-    text_mode = args.text_mode or ("features" if Path(cfg["data"].get(
-        "text_features_cache", "")).exists() else "tokens")
-    print(f"[info] text_mode = {text_mode}")
-
     run_dir = ensure_dir(Path(cfg["output"]["base_dir"]) / cfg["run_name"])
     log_fh = attach_text_log(run_dir / "training_log.txt")
     print(f"[info] run_dir = {run_dir}")
@@ -86,61 +84,34 @@ def main():
     print(f"[info] device = {device}")
 
     # --------- model ---------
-    text_dim = 768
-    model = build_text_swin_umamba(
+    model = build_swin_umamba(
         num_input_channels=cfg["model"]["num_input_channels"],
         num_classes=cfg["model"]["num_classes"],
         feat_size=cfg["model"].get("feat_size", [48, 96, 192, 384, 768]),
         drop_path_rate=cfg["model"]["drop_path_rate"],
         deep_supervision=cfg["model"]["deep_supervision"],
         pretrained_ckpt=cfg["model"].get("pretrained_ckpt"),
-        text_dim=text_dim,
-        tgcm_k=cfg["model"]["tgcm"]["k_filters"],
-        tgcm_kernel=cfg["model"]["tgcm"]["kernel_size"],
-        tgcm_iterative=cfg["model"]["tgcm"]["iterative"],
-        tgcm_beta_init=cfg["model"]["tgcm"]["beta_init"],
-        tgcm_enabled=cfg["model"]["tgcm"].get("enabled", True),
     ).to(device)
-
-    text_encoder = None
-    if text_mode == "tokens":
-        text_encoder = FrozenBertTextEncoder(
-            model_name=cfg["text"]["model_name"],
-            pool=cfg["text"]["pool"],
-            freeze=cfg["text"]["freeze"],
-        ).to(device)
-        text_encoder.eval()
 
     print(f"[info] model params: {count_parameters(model)/1e6:.2f}M "
           f"(trainable: {count_parameters(model, True)/1e6:.2f}M)")
 
     # --------- data ---------
-    tokenizer = text_encoder.tokenizer if text_encoder is not None else None
     image_glob    = cfg["data"].get("image_glob",    "ISIC_*.jpg")
     mask_template = cfg["data"].get("mask_template", "{stem}_segmentation.png")
     train_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="train",
-        captions_jsonl=cfg["data"]["captions_jsonl"],
         transform=train_transform(cfg["data"]["image_size"]),
-        text_mode=text_mode,
-        tokenizer=tokenizer,
-        text_max_length=cfg["text"]["max_length"],
-        text_features_cache=cfg["data"].get("text_features_cache"),
-        require_caption=True,
+        text_mode="none",
         image_glob=image_glob,
         mask_template=mask_template,
     )
     val_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],
         split="val",
-        captions_jsonl=cfg["data"]["captions_jsonl"],
         transform=val_transform(cfg["data"]["image_size"]),
-        text_mode=text_mode,
-        tokenizer=tokenizer,
-        text_max_length=cfg["text"]["max_length"],
-        text_features_cache=cfg["data"].get("text_features_cache"),
-        require_caption=True,
+        text_mode="none",
         image_glob=image_glob,
         mask_template=mask_template,
     )
@@ -177,7 +148,8 @@ def main():
     # --------- resume ---------
     start_epoch = 0
     global_step = 0
-    best_val_dice = 0.0
+    best_val_loss = float("inf")
+    best_metrics: dict[str, float] = {}
     best_epoch = -1
     no_improve = 0
 
@@ -199,10 +171,17 @@ def main():
         )
         start_epoch = bookkeeping["epoch"] + 1
         global_step = bookkeeping["global_step"]
-        best_val_dice = bookkeeping["best_val_dice"]
-        best_epoch = bookkeeping["best_epoch"]
-        no_improve = bookkeeping.get("no_improve", 0)
-        print(f"[resume] start_epoch={start_epoch} best_val_dice={best_val_dice:.4f} no_improve={no_improve}")
+        if (
+            bookkeeping.get("monitor_metric") == "val_loss"
+            and bookkeeping.get("best_monitor_value") is not None
+        ):
+            best_val_loss = float(bookkeeping["best_monitor_value"])
+            best_epoch = bookkeeping["best_epoch"]
+            best_metrics = bookkeeping.get("best_metrics", {})
+            no_improve = bookkeeping.get("no_improve", 0)
+        else:
+            print("[resume] checkpoint has no val_loss monitor state; starting loss-based patience fresh.")
+        print(f"[resume] start_epoch={start_epoch} best_val_loss={best_val_loss:.4f} no_improve={no_improve}")
 
     if start_epoch < cfg["train"]["freeze_encoder_epochs"]:
         model.freeze_encoder()
@@ -211,7 +190,6 @@ def main():
         model.unfreeze_encoder()
 
     # --------- logging ---------
-    writer = SummaryWriter(log_dir=str(run_dir / "tb")) if cfg["output"]["tensorboard"] else None
     history_csv = run_dir / "history.csv"
     budget = WallClockBudget(cfg["train"].get("max_hours", 1e9))
 
@@ -243,8 +221,6 @@ def main():
 
         # ---- train epoch ----
         model.train()
-        if text_encoder is not None:
-            text_encoder.eval()
         loss_meter = AverageMeter()
         t0 = time.time()
         accum_steps = max(1, cfg["train"].get("grad_accum_steps", 1))
@@ -252,19 +228,11 @@ def main():
             image = batch["image"].to(device, non_blocking=True)
             mask = batch["mask"].to(device, non_blocking=True)
 
-            if text_mode == "tokens":
-                input_ids = batch["input_ids"].to(device, non_blocking=True)
-                attn_mask = batch["attention_mask"].to(device, non_blocking=True)
-                with torch.no_grad():
-                    text_pooled, _ = text_encoder(input_ids, attn_mask)
-            else:
-                text_pooled = batch["text_pooled"].to(device, non_blocking=True)
-
             if micro_step % accum_steps == 0:
                 optimizer.zero_grad(set_to_none=True)
 
             with torch.cuda.amp.autocast(enabled=use_amp):
-                output = model(image, text_pooled)
+                output = model(image)
                 loss = criterion(output, mask) / accum_steps
             scaler.scale(loss).backward()
 
@@ -287,24 +255,18 @@ def main():
         fp = torch.tensor(0.0, dtype=torch.float64, device=device)
         fn = torch.tensor(0.0, dtype=torch.float64, device=device)
         tn = torch.tensor(0.0, dtype=torch.float64, device=device)
+        val_loss_meter = AverageMeter()
         with torch.no_grad():
             for batch in val_loader:
                 image = batch["image"].to(device, non_blocking=True)
                 mask = batch["mask"].to(device, non_blocking=True)
-                if text_mode == "tokens":
-                    input_ids = batch["input_ids"].to(device, non_blocking=True)
-                    attn_mask = batch["attention_mask"].to(device, non_blocking=True)
-                    text_pooled, _ = text_encoder(input_ids, attn_mask)
-                else:
-                    text_pooled = batch["text_pooled"].to(device, non_blocking=True)
                 with torch.cuda.amp.autocast(enabled=use_amp):
-                    output = model(image, text_pooled)
+                    output = model(image)
+                    val_loss = criterion(output, mask)
+                val_loss_meter.update(val_loss.item(), n=image.size(0))
                 logits = first_scale(output)
                 b_tp, b_fp, b_fn, b_tn = binary_confusion_counts(logits, mask)
-                tp += b_tp
-                fp += b_fp
-                fn += b_fn
-                tn += b_tn
+                tp += b_tp; fp += b_fp; fn += b_fn; tn += b_tn
 
         val_metrics = vmunet_metrics_from_counts(tp, fp, fn, tn)
         val_miou = val_metrics["miou"].item()
@@ -318,6 +280,7 @@ def main():
         print(
             f"epoch {epoch:03d} | "
             f"train_loss {loss_meter.avg:.4f} | "
+            f"val_loss {val_loss_meter.avg:.4f} | "
             f"miou {val_miou:.4f} | f1_or_dsc {val_f1_or_dsc:.4f} | "
             f"accuracy {val_accuracy:.4f} | specificity {val_specificity:.4f} | "
             f"sensitivity {val_sensitivity:.4f} | "
@@ -325,19 +288,20 @@ def main():
             f"wall {budget.elapsed_hours():.2f}h"
         )
 
-        if writer is not None:
-            writer.add_scalar("train/loss", loss_meter.avg, epoch)
-            writer.add_scalar("val/miou", val_miou, epoch)
-            writer.add_scalar("val/f1_or_dsc", val_f1_or_dsc, epoch)
-            writer.add_scalar("val/accuracy", val_accuracy, epoch)
-            writer.add_scalar("val/specificity", val_specificity, epoch)
-            writer.add_scalar("val/sensitivity", val_sensitivity, epoch)
-            writer.add_scalar("val/dice", val_f1_or_dsc, epoch)
-            writer.add_scalar("val/iou", val_miou, epoch)
-            writer.add_scalar("train/lr", lr_now, epoch)
-            writer.add_scalar("time/epoch_seconds", epoch_time, epoch)
+        epoch_metrics = {
+            "train_loss": loss_meter.avg,
+            "val_loss": val_loss_meter.avg,
+            "val_miou": val_miou,
+            "val_f1_or_dsc": val_f1_or_dsc,
+            "val_accuracy": val_accuracy,
+            "val_specificity": val_specificity,
+            "val_sensitivity": val_sensitivity,
+            "val_dice": val_f1_or_dsc,
+            "val_iou": val_miou,
+        }
         append_history(history_csv, {
             "epoch": epoch, "train_loss": loss_meter.avg,
+            "val_loss": val_loss_meter.avg,
             "val_dice": val_f1_or_dsc, "val_iou": val_miou,
             "lr": lr_now, "epoch_seconds": epoch_time,
             "wall_hours": budget.elapsed_hours(),
@@ -346,18 +310,21 @@ def main():
             "val_sensitivity": val_sensitivity,
         })
 
-        improved = val_f1_or_dsc > best_val_dice
+        improved = val_loss_meter.avg < best_val_loss
         if improved:
-            best_val_dice = val_f1_or_dsc
+            best_val_loss = val_loss_meter.avg
+            best_metrics = epoch_metrics.copy()
             best_epoch = epoch
             no_improve = 0
         else:
             no_improve += 1
+        best_val_dice = best_metrics.get("val_f1_or_dsc", 0.0)
 
         plot_progress(
             history_csv, run_dir / "progress.png",
             best_epoch=best_epoch if best_epoch >= 0 else None,
             best_val_dice=best_val_dice if best_epoch >= 0 else None,
+            best_val_loss=best_val_loss if best_epoch >= 0 else None,
         )
         save_checkpoint(
             run_dir / "last.pth",
@@ -366,6 +333,9 @@ def main():
             epoch=epoch, global_step=global_step,
             best_val_dice=best_val_dice, best_epoch=best_epoch,
             config_hash=cfg_hash, no_improve=no_improve,
+            monitor_metric="val_loss", monitor_mode="min",
+            best_monitor_value=best_val_loss if best_epoch >= 0 else None,
+            latest_metrics=epoch_metrics, best_metrics=best_metrics,
         )
         if improved and cfg["output"]["keep_best"]:
             save_checkpoint(
@@ -375,24 +345,28 @@ def main():
                 epoch=epoch, global_step=global_step,
                 best_val_dice=best_val_dice, best_epoch=best_epoch,
                 config_hash=cfg_hash,
+                monitor_metric="val_loss", monitor_mode="min",
+                best_monitor_value=best_val_loss,
+                latest_metrics=epoch_metrics, best_metrics=best_metrics,
             )
-            print(f"  -> new best, saved best.pth (epoch {best_epoch}, f1_or_dsc {best_val_dice:.4f})")
+            print(
+                f"  -> new best, saved best.pth "
+                f"(epoch {best_epoch}, val_loss {best_val_loss:.4f}, f1_or_dsc {best_val_dice:.4f})"
+            )
 
         if interrupted["flag"]:
             print("[info] graceful exit after save.")
             break
         patience = cfg["train"].get("patience", 50)
         if no_improve >= patience:
-            print(f"[info] early stopping: val Dice did not improve for {patience} epochs.")
+            print(f"[info] early stopping: val_loss did not improve for {patience} epochs.")
             break
         if budget.exhausted():
             print(f"[info] wall-clock budget exhausted ({budget.elapsed_hours():.2f}h). "
                   "Saved last.pth — resume next session.")
             break
 
-    if writer is not None:
-        writer.close()
-    print(f"[done] best val_f1_or_dsc {best_val_dice:.4f} @ epoch {best_epoch}")
+    print(f"[done] best val_loss {best_val_loss:.4f} @ epoch {best_epoch}")
 
 
 if __name__ == "__main__":

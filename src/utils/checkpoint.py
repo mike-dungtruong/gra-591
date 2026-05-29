@@ -43,11 +43,18 @@ def save_checkpoint(
     best_epoch: int,
     config_hash: str,
     no_improve: int = 0,
+    monitor_metric: str = "val_loss",
+    monitor_mode: str = "min",
+    best_monitor_value: float | None = None,
+    latest_metrics: dict[str, float] | None = None,
+    best_metrics: dict[str, float] | None = None,
 ) -> None:
     """Atomic save: write to .tmp then replace, so a crash mid-write cannot corrupt."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
+    latest_metrics = latest_metrics or {}
+    best_metrics = best_metrics or {}
     payload = {
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
@@ -55,6 +62,12 @@ def save_checkpoint(
         "scaler_state_dict": scaler.state_dict() if scaler is not None else None,
         "epoch": epoch,
         "global_step": global_step,
+        "monitor_metric": monitor_metric,
+        "monitor_mode": monitor_mode,
+        "best_monitor_value": best_monitor_value,
+        "latest_metrics": latest_metrics,
+        "best_metrics": best_metrics,
+        # Legacy field retained for older evaluation/checkpoint consumers.
         "best_val_dice": best_val_dice,
         "best_epoch": best_epoch,
         "no_improve": no_improve,
@@ -101,6 +114,11 @@ def load_checkpoint(
         "best_val_dice": ckpt.get("best_val_dice", 0.0),
         "best_epoch": ckpt.get("best_epoch", -1),
         "no_improve": ckpt.get("no_improve", 0),
+        "monitor_metric": ckpt.get("monitor_metric"),
+        "monitor_mode": ckpt.get("monitor_mode"),
+        "best_monitor_value": ckpt.get("best_monitor_value"),
+        "latest_metrics": ckpt.get("latest_metrics", {}),
+        "best_metrics": ckpt.get("best_metrics", {}),
     }
 
 

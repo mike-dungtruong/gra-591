@@ -20,8 +20,7 @@ data:
 output:
   base_dir: ./runs
   save_every_n_epochs: 1
-  keep_best: true
-  tensorboard: false
+  keep_best: true             # also save best.pth on validation loss improvement
 
 # ----- model -----
 model:

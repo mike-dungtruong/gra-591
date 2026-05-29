@@ -15,7 +15,6 @@ output:
   base_dir: ./runs
   save_every_n_epochs: 1
   keep_best: true
-  tensorboard: false
 
 # ----- model -----
 model:

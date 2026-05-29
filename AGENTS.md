@@ -3,7 +3,7 @@
 ## Project Structure
 
 This repo implements TextSwinUMambaD for text-guided ISIC 2017 lesion
-segmentation. Core entry points are `train.py` and `evaluate.py`.
+segmentation. Core entry points live in `training/` and `evaluation/`.
 
 Code lives under `src/`:
 
@@ -37,20 +37,20 @@ python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn;
 Train and resume TextSwinUMambaD:
 
 ```bash
-python train.py --config configs/isic2017.yaml
-python train.py --config configs/isic2017.yaml --resume auto
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
 ```
 
 Evaluate TextSwinUMambaD:
 
 ```bash
-python evaluate.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
 ```
 
-Train or evaluate no-text baselines with `train_swin_umamba.py`,
-`train_swin_umamba_d.py`, `evaluate_swin_umamba.py`, and
-`evaluate_swin_umamba_d.py` using their matching `configs/isic2017_swin_umamba*.yaml`
-files.
+Train or evaluate no-text baselines with `training/train_swin_umamba.py`,
+`training/train_swin_umamba_d.py`, `evaluation/evaluate_swin_umamba.py`, and
+`evaluation/evaluate_swin_umamba_d.py` using their matching
+`configs/isic2017_swin_umamba*.yaml` files.
 
 Precompute caption embeddings:
 
@@ -104,6 +104,6 @@ python caption_gen/evaluate.py --captions outputs/captions/captions.jsonl
 ## Security And Artifacts
 
 Do not commit `OPENAI_API_KEY`, generated captions with sensitive metadata,
-datasets, checkpoints, TensorBoard logs, `cache/text_features.pt`, pretrained
-weights, or run outputs. Prefer local or Drive paths configured through YAML and
-document any path overrides in PR notes.
+datasets, checkpoints, `cache/text_features.pt`, pretrained weights, or run
+outputs. Prefer local or Drive paths configured through YAML and document any
+path overrides in PR notes.

@@ -11,7 +11,6 @@ output:
   base_dir: ./runs
   save_every_n_epochs: 1
   keep_best: true
-  tensorboard: false
 
 model:
   pretrained_ckpt: ./checkpoints/pretrained/vmamba_tiny_e292.pth

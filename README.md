@@ -24,16 +24,19 @@ TextSwinUMamba/
 ├── scripts/
 │   ├── precompute_text_features.py
 │   └── verify_caption_coverage.py
+├── training/                         # training entrypoints by model family
+│   ├── train_text_swin_umamba_d.py
+│   ├── train_text_swin_umamba.py
+│   ├── train_swin_umamba.py
+│   └── train_swin_umamba_d.py
+├── evaluation/                       # evaluation entrypoints by model family
+│   ├── evaluate_text_swin_umamba_d.py
+│   ├── evaluate_text_swin_umamba.py
+│   ├── evaluate_swin_umamba.py
+│   └── evaluate_swin_umamba_d.py
 ├── THIRD_PARTY_LICENSES/
 │   └── Swin-UMamba-LICENSE
-├── train.py                          # TextSwinUMambaD training
-├── train_text_swin_umamba.py         # TextSwinUMamba CNN-decoder training
-├── train_swin_umamba.py              # SwinUMamba baseline training
-├── train_swin_umamba_d.py            # SwinUMamba-D baseline training
-├── evaluate.py                       # TextSwinUMambaD evaluation
-├── evaluate_text_swin_umamba.py      # TextSwinUMamba CNN-decoder evaluation
-├── evaluate_swin_umamba.py
-└── evaluate_swin_umamba_d.py
+└── notebooks/
 ```
 
 Important model files are `src/models/text_swin_umamba_d.py`,
@@ -50,10 +53,10 @@ Tracked source should stay code-focused:
 
 | Goes in git | Stays local or in Drive |
 | --- | --- |
-| `src/`, `configs/isic2017*.yaml`, entrypoint scripts | `runs/<run_name>/` checkpoints and logs |
+| `src/`, `training/`, `evaluation/`, `configs/isic2017*.yaml` | `runs/<run_name>/` checkpoints and logs |
 | `README.md`, `AGENTS.md`, `CLAUDE.md`, `.gitignore` | `cache/text_features.pt` |
 | `requirements.txt`, `environment.yml` | ISIC images, masks, captions, pretrained weights |
-| `THIRD_PARTY_LICENSES/` | TensorBoard files and generated outputs |
+| `THIRD_PARTY_LICENSES/` | generated outputs |
 
 Do not commit `OPENAI_API_KEY`, datasets, checkpoints, generated captions with
 sensitive metadata, or text-feature caches.
@@ -109,34 +112,34 @@ The canonical text config keys are in `configs/isic2017.yaml`:
 Train TextSwinUMambaD:
 
 ```bash
-python train.py --config configs/isic2017.yaml
-python train.py --config configs/isic2017.yaml --resume auto
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
 ```
 
 Train no-text baselines:
 
 ```bash
-python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
-python train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
+python training/train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
+python training/train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
 ```
 
 Train the text-guided CNN-decoder variant:
 
 ```bash
-python train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml
-python train_text_swin_umamba.py --config configs/isic2018_text_swin_umamba.yaml
+python training/train_text_swin_umamba.py --config configs/isic2017_text_swin_umamba.yaml
+python training/train_text_swin_umamba.py --config configs/isic2018_text_swin_umamba.yaml
 ```
 
 Training writes directly to `runs/<run_name>/` by default:
 `last.pth`, `best.pth`, `config.yaml`, `training_log.txt`, `history.csv`,
-`progress.png`, and optionally `tb/`.
+and `progress.png`.
 
 ## Evaluation
 
 Evaluate TextSwinUMambaD:
 
 ```bash
-python evaluate.py \
+python evaluation/evaluate_text_swin_umamba_d.py \
   --config configs/isic2017.yaml \
   --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
 ```
@@ -144,11 +147,11 @@ python evaluate.py \
 Evaluate baselines:
 
 ```bash
-python evaluate_swin_umamba.py \
+python evaluation/evaluate_swin_umamba.py \
   --config configs/isic2017_swin_umamba.yaml \
   --ckpt runs/swin_umamba_isic2017/best.pth
 
-python evaluate_swin_umamba_d.py \
+python evaluation/evaluate_swin_umamba_d.py \
   --config configs/isic2017_swin_umamba_d.yaml \
   --ckpt runs/swin_umamba_d_isic2017/best.pth
 ```
@@ -156,11 +159,11 @@ python evaluate_swin_umamba_d.py \
 Evaluate the text-guided CNN-decoder variant:
 
 ```bash
-python evaluate_text_swin_umamba.py \
+python evaluation/evaluate_text_swin_umamba.py \
   --config configs/isic2017_text_swin_umamba.yaml \
   --ckpt runs/text_swin_umamba_isic2017/best.pth
 
-python evaluate_text_swin_umamba.py \
+python evaluation/evaluate_text_swin_umamba.py \
   --config configs/isic2018_text_swin_umamba.yaml \
   --ckpt runs/text_swin_umamba_isic2018/best.pth
 ```

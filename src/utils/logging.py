@@ -1,9 +1,8 @@
 """Training logging extras: persistent text log and per-epoch progress plot.
 
 We don't get nnUNet's `training_log_*.txt` and `progress.png` for free since
-TextSwinUMamba runs on a plain PyTorch loop. These helpers recreate that
-ergonomic so a glance at the run directory tells you what's happening without
-having to spin up TensorBoard.
+TextSwinUMamba runs on a plain PyTorch loop. These helpers make the run
+directory self-contained enough to inspect without a separate dashboard.
 """
 from __future__ import annotations
 
@@ -45,8 +44,8 @@ def attach_text_log(log_path: str | Path):
     """Tee stdout + stderr to `log_path` (append mode).
 
     Append mode means a resumed run continues writing to the same file rather
-    than truncating it. Call once at the start of `train.py`. Returns the open
-    file handle so the caller can close it cleanly at shutdown.
+    than truncating it. Call once at the start of a training entrypoint. Returns
+    the open file handle so the caller can close it cleanly at shutdown.
     """
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,9 +88,10 @@ def plot_progress(
     *,
     best_epoch: int | None = None,
     best_val_dice: float | None = None,
+    best_val_loss: float | None = None,
 ) -> None:
     """Read `history.csv` and write a 4-panel `progress.png`:
-        (loss curve) (val Dice + IoU)
+        (loss curves) (val Dice + IoU)
         (learning rate) (summary text)
 
     Idempotent — overwrites the existing file every call. Failures are silent;
@@ -110,23 +110,28 @@ def plot_progress(
 
     epochs = _column(rows, "epoch")
     train_loss = _column(rows, "train_loss")
+    val_loss = _column(rows, "val_loss")
     val_dice = _column(rows, "val_dice")
     val_iou = _column(rows, "val_iou")
     lr = _column(rows, "lr")
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
 
-    # (0,0) train loss
+    # (0,0) losses
     ax = axes[0, 0]
     ax.plot(epochs, train_loss, color="tab:blue", label="train_loss")
+    ax.plot(epochs, val_loss, color="tab:red", label="val_loss")
+    if best_epoch is not None and best_val_loss is not None:
+        ax.scatter([best_epoch], [best_val_loss], color="black", zorder=5,
+                   label=f"best val_loss {best_val_loss:.4f}")
     ax.set_xlabel("epoch"); ax.set_ylabel("loss")
-    ax.set_title("Training loss"); ax.grid(alpha=0.3); ax.legend()
+    ax.set_title("Loss"); ax.grid(alpha=0.3); ax.legend()
 
     # (0,1) validation metrics
     ax = axes[0, 1]
     ax.plot(epochs, val_dice, color="tab:green", label="val_dice")
     ax.plot(epochs, val_iou,  color="tab:orange", label="val_iou")
-    if best_epoch is not None and best_val_dice is not None:
+    if best_epoch is not None and best_val_dice is not None and best_val_loss is None:
         ax.scatter([best_epoch], [best_val_dice], color="red", zorder=5,
                    label=f"best dice {best_val_dice:.4f}")
     ax.set_xlabel("epoch"); ax.set_ylabel("score"); ax.set_ylim(0, 1)
@@ -144,12 +149,17 @@ def plot_progress(
     lines = [
         f"epochs trained : {int(last['epoch']) + 1}",
         f"latest train_loss : {last.get('train_loss', float('nan')):.4f}",
+        f"latest val_loss : {last.get('val_loss', float('nan')):.4f}",
         f"latest val_dice : {last.get('val_dice', float('nan')):.4f}",
         f"latest val_iou : {last.get('val_iou', float('nan')):.4f}",
         f"latest lr : {last.get('lr', float('nan')):.2e}",
         f"wall hours : {last.get('wall_hours', float('nan')):.2f}",
     ]
-    if best_epoch is not None and best_val_dice is not None:
+    if best_epoch is not None and best_val_loss is not None:
+        lines.append("")
+        lines.append(f"best val_loss : {best_val_loss:.4f}")
+        lines.append(f"  @ epoch {best_epoch}")
+    elif best_epoch is not None and best_val_dice is not None:
         lines.append("")
         lines.append(f"best val_dice : {best_val_dice:.4f}")
         lines.append(f"  @ epoch {best_epoch}")

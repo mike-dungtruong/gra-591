@@ -1,13 +1,18 @@
 """Standalone evaluation for SwinUMamba-D (Mamba encoder + Mamba decoder).
 
 Usage:
-    python evaluate_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml \
+    python evaluation/evaluate_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml \
         --ckpt runs/swin_umamba_d_isic2017/checkpoints/best.pth
 """
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import torch
 import yaml
@@ -42,8 +47,23 @@ def main():
     ).to(device)
 
     bookkeeping = load_checkpoint(args.ckpt, model=model, map_location=device)
-    print(f"loaded ckpt: epoch={bookkeeping['epoch']} "
-          f"best_val_f1_or_dsc={bookkeeping['best_val_dice']:.4f}")
+    monitor_metric = bookkeeping.get("monitor_metric")
+    best_monitor_value = bookkeeping.get("best_monitor_value")
+    if monitor_metric is not None and best_monitor_value is not None:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_{monitor_metric}={best_monitor_value:.4f}"
+        )
+    else:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_val_f1_or_dsc={bookkeeping['best_val_dice']:.4f}"
+        )
+    best_metrics = bookkeeping.get("best_metrics", {})
+    if best_metrics:
+        metric_keys = ("val_loss", "val_miou", "val_f1_or_dsc", "val_accuracy", "val_specificity", "val_sensitivity")
+        metric_text = " | ".join(f"{k}={best_metrics[k]:.4f}" for k in metric_keys if k in best_metrics)
+        print(f"best_metrics: {metric_text}")
 
     val_ds = build_isic_dataset(
         root=cfg["data"]["isic_root"],

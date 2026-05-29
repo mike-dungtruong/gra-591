@@ -12,8 +12,7 @@ output:
   # On Colab, override this to e.g. /content/drive/MyDrive/TextSwinUMamba/runs
   base_dir: ./runs
   save_every_n_epochs: 1
-  keep_best: true
-  tensorboard: false
+  keep_best: true             # also save best.pth on validation loss improvement
 
 # ----- model -----
 model:
@@ -40,7 +39,7 @@ train:
   amp: true
   seed: 42
   max_hours: 11.5
-  patience: 50                  # early stop if val Dice doesn't improve for this many epochs
+  patience: 50                  # early stop if validation loss doesn't improve for this many epochs
 
 # ----- loss -----
 loss:

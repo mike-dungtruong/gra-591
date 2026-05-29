@@ -36,7 +36,6 @@ albumentations
 pillow
 
 # --- training infra ---
-tensorboard
 matplotlib
 pyyaml
 tqdm

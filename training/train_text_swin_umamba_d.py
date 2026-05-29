@@ -6,7 +6,7 @@ Features:
   - Encoder freeze for the first `freeze_encoder_epochs`.
   - CosineAnnealingLR (T_max=50, eta_min=1e-5) matching VM-UNet protocol.
   - Checkpoint resume from `last.pth` (atomic save + RNG restore).
-  - TensorBoard logging to the run directory (mountable to Drive for Colab).
+  - Persistent text logs, CSV history, and progress plots in the run directory.
   - Wall-clock budget so Colab kicks-offs don't lose work.
 
 Two text modes:
@@ -15,22 +15,25 @@ Two text modes:
   - 'tokens': run BERT every batch. Simpler but slower / more memory.
 
 Usage:
-    python train.py --config configs/isic2017.yaml
-    python train.py --config configs/isic2017.yaml --resume auto
+    python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
+    python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import signal
+import sys
 import time
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 import torch
-import torch.nn as nn
 import yaml
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 
 from src.data.isic_dataset import build_isic_dataset
 from src.data.transforms import train_transform, val_transform
@@ -199,7 +202,8 @@ def main():
     # --------- resume ---------
     start_epoch = 0
     global_step = 0
-    best_val_dice = 0.0
+    best_val_loss = float("inf")
+    best_metrics: dict[str, float] = {}
     best_epoch = -1
     no_improve = 0
 
@@ -221,10 +225,17 @@ def main():
         )
         start_epoch = bookkeeping["epoch"] + 1
         global_step = bookkeeping["global_step"]
-        best_val_dice = bookkeeping["best_val_dice"]
-        best_epoch = bookkeeping["best_epoch"]
-        no_improve = bookkeeping.get("no_improve", 0)
-        print(f"[resume] start_epoch={start_epoch} best_val_dice={best_val_dice:.4f} no_improve={no_improve}")
+        if (
+            bookkeeping.get("monitor_metric") == "val_loss"
+            and bookkeeping.get("best_monitor_value") is not None
+        ):
+            best_val_loss = float(bookkeeping["best_monitor_value"])
+            best_epoch = bookkeeping["best_epoch"]
+            best_metrics = bookkeeping.get("best_metrics", {})
+            no_improve = bookkeeping.get("no_improve", 0)
+        else:
+            print("[resume] checkpoint has no val_loss monitor state; starting loss-based patience fresh.")
+        print(f"[resume] start_epoch={start_epoch} best_val_loss={best_val_loss:.4f} no_improve={no_improve}")
 
     # Apply encoder-freeze policy based on current epoch (handles resume mid-schedule).
     if start_epoch < cfg["train"]["freeze_encoder_epochs"]:
@@ -234,7 +245,6 @@ def main():
         model.unfreeze_encoder()
 
     # --------- logging ---------
-    writer = SummaryWriter(log_dir=str(run_dir / "tb")) if cfg["output"]["tensorboard"] else None
     history_csv = run_dir / "history.csv"
     budget = WallClockBudget(cfg["train"].get("max_hours", 1e9))
 
@@ -311,6 +321,7 @@ def main():
         fp = torch.tensor(0.0, dtype=torch.float64, device=device)
         fn = torch.tensor(0.0, dtype=torch.float64, device=device)
         tn = torch.tensor(0.0, dtype=torch.float64, device=device)
+        val_loss_meter = AverageMeter()
         with torch.no_grad():
             for batch in val_loader:
                 image = batch["image"].to(device, non_blocking=True)
@@ -323,6 +334,8 @@ def main():
                     text_pooled = batch["text_pooled"].to(device, non_blocking=True)
                 with torch.cuda.amp.autocast(enabled=use_amp):
                     output = model(image, text_pooled)
+                    val_loss = criterion(output, mask)
+                val_loss_meter.update(val_loss.item(), n=image.size(0))
                 logits = first_scale(output)
                 b_tp, b_fp, b_fn, b_tn = binary_confusion_counts(logits, mask)
                 tp += b_tp
@@ -342,6 +355,7 @@ def main():
         print(
             f"epoch {epoch:03d} | "
             f"train_loss {loss_meter.avg:.4f} | "
+            f"val_loss {val_loss_meter.avg:.4f} | "
             f"miou {val_miou:.4f} | f1_or_dsc {val_f1_or_dsc:.4f} | "
             f"accuracy {val_accuracy:.4f} | specificity {val_specificity:.4f} | "
             f"sensitivity {val_sensitivity:.4f} | "
@@ -350,20 +364,21 @@ def main():
         )
 
         # ---- log ----
-        if writer is not None:
-            writer.add_scalar("train/loss", loss_meter.avg, epoch)
-            writer.add_scalar("val/miou", val_miou, epoch)
-            writer.add_scalar("val/f1_or_dsc", val_f1_or_dsc, epoch)
-            writer.add_scalar("val/accuracy", val_accuracy, epoch)
-            writer.add_scalar("val/specificity", val_specificity, epoch)
-            writer.add_scalar("val/sensitivity", val_sensitivity, epoch)
-            writer.add_scalar("val/dice", val_f1_or_dsc, epoch)
-            writer.add_scalar("val/iou", val_miou, epoch)
-            writer.add_scalar("train/lr", lr_now, epoch)
-            writer.add_scalar("time/epoch_seconds", epoch_time, epoch)
+        epoch_metrics = {
+            "train_loss": loss_meter.avg,
+            "val_loss": val_loss_meter.avg,
+            "val_miou": val_miou,
+            "val_f1_or_dsc": val_f1_or_dsc,
+            "val_accuracy": val_accuracy,
+            "val_specificity": val_specificity,
+            "val_sensitivity": val_sensitivity,
+            "val_dice": val_f1_or_dsc,
+            "val_iou": val_miou,
+        }
         append_history(history_csv, {
             "epoch": epoch, "train_loss": loss_meter.avg,
             # Backward-compatible aliases used by progress plotting/checkpoints.
+            "val_loss": val_loss_meter.avg,
             "val_dice": val_f1_or_dsc, "val_iou": val_miou,
             "lr": lr_now, "epoch_seconds": epoch_time,
             "wall_hours": budget.elapsed_hours(),
@@ -373,13 +388,15 @@ def main():
         })
 
         # ---- save ----
-        improved = val_f1_or_dsc > best_val_dice
+        improved = val_loss_meter.avg < best_val_loss
         if improved:
-            best_val_dice = val_f1_or_dsc
+            best_val_loss = val_loss_meter.avg
+            best_metrics = epoch_metrics.copy()
             best_epoch = epoch
             no_improve = 0
         else:
             no_improve += 1
+        best_val_dice = best_metrics.get("val_f1_or_dsc", 0.0)
 
         # Regenerate progress.png from the just-updated history.csv (after the
         # best_* update so the red marker on the val-metrics panel is current).
@@ -387,6 +404,7 @@ def main():
             history_csv, run_dir / "progress.png",
             best_epoch=best_epoch if best_epoch >= 0 else None,
             best_val_dice=best_val_dice if best_epoch >= 0 else None,
+            best_val_loss=best_val_loss if best_epoch >= 0 else None,
         )
         save_checkpoint(
             run_dir / "last.pth",
@@ -395,6 +413,9 @@ def main():
             epoch=epoch, global_step=global_step,
             best_val_dice=best_val_dice, best_epoch=best_epoch,
             config_hash=cfg_hash, no_improve=no_improve,
+            monitor_metric="val_loss", monitor_mode="min",
+            best_monitor_value=best_val_loss if best_epoch >= 0 else None,
+            latest_metrics=epoch_metrics, best_metrics=best_metrics,
         )
         if improved and cfg["output"]["keep_best"]:
             save_checkpoint(
@@ -404,8 +425,14 @@ def main():
                 epoch=epoch, global_step=global_step,
                 best_val_dice=best_val_dice, best_epoch=best_epoch,
                 config_hash=cfg_hash,
+                monitor_metric="val_loss", monitor_mode="min",
+                best_monitor_value=best_val_loss,
+                latest_metrics=epoch_metrics, best_metrics=best_metrics,
             )
-            print(f"  -> new best, saved best.pth (epoch {best_epoch}, f1_or_dsc {best_val_dice:.4f})")
+            print(
+                f"  -> new best, saved best.pth "
+                f"(epoch {best_epoch}, val_loss {best_val_loss:.4f}, f1_or_dsc {best_val_dice:.4f})"
+            )
 
         # ---- bail-out conditions ----
         if interrupted["flag"]:
@@ -413,16 +440,14 @@ def main():
             break
         patience = cfg["train"].get("patience", 50)
         if no_improve >= patience:
-            print(f"[info] early stopping: val Dice did not improve for {patience} epochs.")
+            print(f"[info] early stopping: val_loss did not improve for {patience} epochs.")
             break
         if budget.exhausted():
             print(f"[info] wall-clock budget exhausted ({budget.elapsed_hours():.2f}h). "
                   "Saved last.pth — resume next session.")
             break
 
-    if writer is not None:
-        writer.close()
-    print(f"[done] best val_f1_or_dsc {best_val_dice:.4f} @ epoch {best_epoch}")
+    print(f"[done] best val_loss {best_val_loss:.4f} @ epoch {best_epoch}")
 
 
 if __name__ == "__main__":

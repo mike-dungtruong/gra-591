@@ -7,15 +7,15 @@ project structure, commands, or artifact paths change.
 
 ```bash
 # Text-guided model
-python train.py --config configs/isic2017.yaml
-python train.py --config configs/isic2017.yaml --resume auto
-python evaluate.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
+python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
 
 # No-text baselines
-python train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
-python train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
-python evaluate_swin_umamba.py --config configs/isic2017_swin_umamba.yaml --ckpt runs/swin_umamba_isic2017/best.pth
-python evaluate_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml --ckpt runs/swin_umamba_d_isic2017/best.pth
+python training/train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
+python training/train_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml
+python evaluation/evaluate_swin_umamba.py --config configs/isic2017_swin_umamba.yaml --ckpt runs/swin_umamba_isic2017/best.pth
+python evaluation/evaluate_swin_umamba_d.py --config configs/isic2017_swin_umamba_d.yaml --ckpt runs/swin_umamba_d_isic2017/best.pth
 ```
 
 Prepare text features:
@@ -57,18 +57,17 @@ Main config keys in `configs/isic2017.yaml`:
 - `output.base_dir`
 
 Training writes directly to `runs/<run_name>/`: `last.pth`, `best.pth`,
-`config.yaml`, `training_log.txt`, `history.csv`, `progress.png`, and optional
-`tb/`.
+`config.yaml`, `training_log.txt`, `history.csv`, and `progress.png`.
 
-Do not commit datasets, checkpoints, pretrained weights, TensorBoard logs,
-caption caches, text-feature caches, generated outputs, or `OPENAI_API_KEY`.
+Do not commit datasets, checkpoints, pretrained weights, caption caches,
+text-feature caches, generated outputs, or `OPENAI_API_KEY`.
 
 ## Key Files
 
 | File | Role |
 | --- | --- |
-| `train.py` | TextSwinUMambaD training loop |
-| `evaluate.py` | TextSwinUMambaD evaluation |
+| `training/` | Training entrypoints with model mapping notes |
+| `evaluation/` | Evaluation entrypoints with model mapping notes |
 | `configs/isic2017.yaml` | Main text-guided config |
 | `src/models/text_swin_umamba_d.py` | Full text-guided model |
 | `src/models/tgcm.py` | Text-Gated Channel Module |

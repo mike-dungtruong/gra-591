@@ -1,14 +1,17 @@
-"""Standalone evaluation for TextSwinUMamba (CNN decoder + TGCM text injection).
+"""Standalone evaluation with VM-UNet-style ISIC metrics.
 
 Usage:
-    python evaluate_text_swin_umamba.py \
-        --config configs/isic2017_text_swin_umamba.yaml \
-        --ckpt runs/text_swin_umamba_isic2017/best.pth
+    python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/<run>/best.pth
 """
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 import torch
 import yaml
@@ -17,7 +20,7 @@ from torch.utils.data import DataLoader
 from src.data.isic_dataset import build_isic_dataset
 from src.data.transforms import val_transform
 from src.models.text_encoder import FrozenBertTextEncoder
-from src.models.text_swin_umamba import build_text_swin_umamba
+from src.models.text_swin_umamba_d import build_text_swin_umamba_d
 from src.utils.checkpoint import load_checkpoint
 from src.utils.metrics import (
     binary_confusion_counts,
@@ -40,32 +43,51 @@ def main():
         "text_features_cache", "")).exists() else "tokens")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = build_text_swin_umamba(
+    text_fusion_cfg = cfg["model"].get("text_fusion", {})
+    model = build_text_swin_umamba_d(
         num_input_channels=cfg["model"]["num_input_channels"],
         num_classes=cfg["model"]["num_classes"],
-        feat_size=cfg["model"].get("feat_size", [48, 96, 192, 384, 768]),
+        features_per_stage=tuple(cfg["model"]["features_per_stage"]),
+        d_state=cfg["model"]["d_state"],
         drop_path_rate=cfg["model"]["drop_path_rate"],
         deep_supervision=cfg["model"]["deep_supervision"],
-        pretrained_ckpt=None,  # weights loaded from --ckpt
         text_dim=768,
         tgcm_k=cfg["model"]["tgcm"]["k_filters"],
         tgcm_kernel=cfg["model"]["tgcm"]["kernel_size"],
         tgcm_iterative=cfg["model"]["tgcm"]["iterative"],
         tgcm_beta_init=cfg["model"]["tgcm"]["beta_init"],
         tgcm_enabled=cfg["model"]["tgcm"].get("enabled", True),
+        text_fusion_enabled=text_fusion_cfg.get("enabled", False),
+        text_fusion_method=text_fusion_cfg.get("method", "film"),
+        text_fusion_stages=tuple(text_fusion_cfg.get("stages", [0, 1, 2, 3])),
+        text_fusion_alpha_init=text_fusion_cfg.get("alpha_init", 0.1),
+        pretrained_ckpt=None,  # we'll load from --ckpt
     ).to(device)
 
     bookkeeping = load_checkpoint(args.ckpt, model=model, map_location=device)
-    print(f"loaded ckpt: epoch={bookkeeping['epoch']} "
-          f"best_val_f1_or_dsc={bookkeeping['best_val_dice']:.4f}")
+    monitor_metric = bookkeeping.get("monitor_metric")
+    best_monitor_value = bookkeeping.get("best_monitor_value")
+    if monitor_metric is not None and best_monitor_value is not None:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_{monitor_metric}={best_monitor_value:.4f}"
+        )
+    else:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_val_f1_or_dsc={bookkeeping['best_val_dice']:.4f}"
+        )
+    best_metrics = bookkeeping.get("best_metrics", {})
+    if best_metrics:
+        metric_keys = ("val_loss", "val_miou", "val_f1_or_dsc", "val_accuracy", "val_specificity", "val_sensitivity")
+        metric_text = " | ".join(f"{k}={best_metrics[k]:.4f}" for k in metric_keys if k in best_metrics)
+        print(f"best_metrics: {metric_text}")
 
     text_encoder = None
     tokenizer = None
     if text_mode == "tokens":
         text_encoder = FrozenBertTextEncoder(
-            model_name=cfg["text"]["model_name"],
-            pool=cfg["text"]["pool"],
-            freeze=True,
+            model_name=cfg["text"]["model_name"], pool=cfg["text"]["pool"], freeze=True
         ).to(device)
         text_encoder.eval()
         tokenizer = text_encoder.tokenizer
@@ -102,7 +124,6 @@ def main():
                 text_pooled, _ = text_encoder(input_ids, attn_mask)
             else:
                 text_pooled = batch["text_pooled"].to(device, non_blocking=True)
-
             output = model(image, text_pooled)
             logits = first_scale(output)
             b_tp, b_fp, b_fn, b_tn = binary_confusion_counts(logits, mask)
