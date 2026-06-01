@@ -7,6 +7,7 @@ Run these scripts from the repository root.
 | `text` | `evaluation/evaluate_text_swin_umamba_d.py` | TextSwinUMambaD: Mamba encoder + Mamba decoder + decoder TGCM text guidance |
 | `text_swin_umamba` | `evaluation/evaluate_text_swin_umamba.py` | TextSwinUMamba: Mamba encoder + CNN decoder + decoder TGCM text guidance |
 | `swin_umamba` | `evaluation/evaluate_swin_umamba.py` | SwinUMamba no-text baseline with CNN decoder |
+| `boundary_swin_umamba` | `evaluation/evaluate_boundary_swin_umamba.py` | SwinUMamba with boundary-guided skip fusion and edge auxiliary supervision |
 | `swin_umamba_d` | `evaluation/evaluate_swin_umamba_d.py` | SwinUMamba-D no-text baseline with Mamba decoder |
 | `text_lvit_add` | `evaluation/evaluate_text_swin_umamba_d.py` | TextSwinUMambaD with encoder additive text fusion, selected by config |
 | `text_lvit_film` | `evaluation/evaluate_text_swin_umamba_d.py` | TextSwinUMambaD with encoder FiLM text fusion, selected by config |

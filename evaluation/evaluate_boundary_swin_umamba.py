@@ -1,0 +1,126 @@
+"""Standalone evaluation for boundary-aware SwinUMamba.
+
+Usage:
+    python evaluation/evaluate_boundary_swin_umamba.py \
+        --config configs/isic2017_boundary_swin_umamba.yaml \
+        --ckpt runs/boundary_swin_umamba_isic2017/best.pth
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import torch
+import yaml
+from torch.utils.data import DataLoader
+
+from src.data.isic_dataset import build_isic_dataset
+from src.data.transforms import val_transform
+from src.models.boundary_swin_umamba import build_boundary_swin_umamba
+from src.utils.checkpoint import load_checkpoint
+from src.utils.metrics import binary_confusion_counts, first_scale, vmunet_metrics_from_counts
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--ckpt", type=Path, required=True)
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = build_boundary_swin_umamba(
+        num_input_channels=cfg["model"]["num_input_channels"],
+        num_classes=cfg["model"]["num_classes"],
+        feat_size=cfg["model"].get("feat_size", [48, 96, 192, 384, 768]),
+        drop_path_rate=cfg["model"]["drop_path_rate"],
+        deep_supervision=cfg["model"]["deep_supervision"],
+        pretrained_ckpt=None,
+    ).to(device)
+
+    bookkeeping = load_checkpoint(args.ckpt, model=model, map_location=device)
+    monitor_metric = bookkeeping.get("monitor_metric")
+    best_monitor_value = bookkeeping.get("best_monitor_value")
+    if monitor_metric is not None and best_monitor_value is not None:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_{monitor_metric}={best_monitor_value:.4f}"
+        )
+    else:
+        print(
+            f"loaded ckpt: epoch={bookkeeping['epoch']} "
+            f"best_val_f1_or_dsc={bookkeeping['best_val_dice']:.4f}"
+        )
+    best_metrics = bookkeeping.get("best_metrics", {})
+    if best_metrics:
+        metric_keys = (
+            "val_loss",
+            "val_miou",
+            "val_f1_or_dsc",
+            "val_accuracy",
+            "val_specificity",
+            "val_sensitivity",
+        )
+        metric_text = " | ".join(
+            f"{k}={best_metrics[k]:.4f}" for k in metric_keys if k in best_metrics
+        )
+        print(f"best_metrics: {metric_text}")
+
+    val_ds = build_isic_dataset(
+        root=cfg["data"]["isic_root"],
+        split="val",
+        transform=val_transform(cfg["data"]["image_size"]),
+        text_mode="none",
+        image_glob=cfg["data"].get("image_glob", "ISIC_*.jpg"),
+        mask_template=cfg["data"].get("mask_template", "{stem}_segmentation.png"),
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=cfg["data"]["num_workers"],
+        pin_memory=True,
+    )
+
+    model.eval()
+    tp = torch.tensor(0.0, dtype=torch.float64, device=device)
+    fp = torch.tensor(0.0, dtype=torch.float64, device=device)
+    fn = torch.tensor(0.0, dtype=torch.float64, device=device)
+    tn = torch.tensor(0.0, dtype=torch.float64, device=device)
+    with torch.no_grad():
+        for batch in val_loader:
+            image = batch["image"].to(device, non_blocking=True)
+            mask = batch["mask"].to(device, non_blocking=True)
+            output = model(image)
+            logits = first_scale(output["seg"])
+            b_tp, b_fp, b_fn, b_tn = binary_confusion_counts(logits, mask)
+            tp += b_tp
+            fp += b_fp
+            fn += b_fn
+            tn += b_tn
+
+    metrics = {k: v.item() for k, v in vmunet_metrics_from_counts(tp, fp, fn, tn).items()}
+    print(
+        f"miou: {metrics['miou']:.4f} | "
+        f"f1_or_dsc: {metrics['f1_or_dsc']:.4f} | "
+        f"accuracy: {metrics['accuracy']:.4f} | "
+        f"specificity: {metrics['specificity']:.4f} | "
+        f"sensitivity: {metrics['sensitivity']:.4f}"
+    )
+    print(
+        "confusion_matrix: "
+        f"TN={int(tn.item())}, FP={int(fp.item())}, "
+        f"FN={int(fn.item())}, TP={int(tp.item())}"
+    )
+
+
+if __name__ == "__main__":
+    main()
