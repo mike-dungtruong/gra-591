@@ -190,6 +190,7 @@ def build_text_swin_umamba_d_sdi(
         sdi_residual=sdi_residual,
         sdi_alpha_init=sdi_alpha_init,
     )
+    model.decoder.skip_refiner.zero_init_residual_projection()
     if pretrained_ckpt:
         model = load_pretrained_ckpt(
             model,

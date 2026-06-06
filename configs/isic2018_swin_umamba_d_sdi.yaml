@@ -1,4 +1,4 @@
-run_name: swin_umamba_d_sdi_isic2018
+run_name: swin_umamba_d_sdi_stable_isic2018
 
 data:
   isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2018
@@ -50,7 +50,7 @@ loss:
   dice_weight: 1.0
   bce_weight: 1.0
   dice_smooth: 1.0
-  normalize_deep_supervision: false
+  normalize_deep_supervision: true
   deep_supervision_weights: [1.0, 0.5, 0.25, 0.125]
 
 eval:

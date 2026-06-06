@@ -90,20 +90,23 @@ class SDI(nn.Module):
 
     def forward(self, xs: Sequence[torch.Tensor], anchor: torch.Tensor) -> torch.Tensor:
         target_size = anchor.shape[-2:]
-        out = torch.ones_like(anchor)
-        for x, conv in zip(xs, self.convs):
-            if x.shape[-2:] != target_size:
-                if x.shape[-2] >= target_size[0] and x.shape[-1] >= target_size[1]:
-                    x = F.adaptive_avg_pool2d(x, target_size)
-                else:
-                    x = F.interpolate(
-                        x,
-                        size=target_size,
-                        mode="bilinear",
-                        align_corners=False,
-                    )
-            out = out * conv(x)
-        return out
+        out = torch.ones_like(anchor, dtype=torch.float32)
+        with torch.cuda.amp.autocast(enabled=False):
+            for x, conv in zip(xs, self.convs):
+                x = x.float()
+                if x.shape[-2:] != target_size:
+                    if x.shape[-2] >= target_size[0] and x.shape[-1] >= target_size[1]:
+                        x = F.adaptive_avg_pool2d(x, target_size)
+                    else:
+                        x = F.interpolate(
+                            x,
+                            size=target_size,
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+                gate = 2.0 * torch.sigmoid(conv(x))
+                out = out * gate
+        return out.to(dtype=anchor.dtype)
 
 
 class MultiScaleSDIRefiner(nn.Module):
@@ -156,6 +159,17 @@ class MultiScaleSDIRefiner(nn.Module):
             ]
         )
         self.alpha = nn.Parameter(torch.full((len(self.channels_per_level),), float(alpha_init)))
+
+    def zero_init_residual_projection(self) -> None:
+        """Start SDI as an exact no-op when used in residual mode."""
+        for project in self.output_projects:
+            conv = project[0]
+            bn = project[1]
+            nn.init.zeros_(conv.weight)
+            nn.init.ones_(bn.weight)
+            nn.init.zeros_(bn.bias)
+            nn.init.zeros_(bn.running_mean)
+            nn.init.ones_(bn.running_var)
 
     def forward(self, xs: Sequence[torch.Tensor]) -> list[torch.Tensor]:
         if len(xs) != len(self.channels_per_level):

@@ -115,6 +115,7 @@ def build_swin_umamba_d_sdi(
     model = SwinUMambaDSDI(vss_args, decoder_args)
     model.apply(InitWeights_He(1e-2))
     model.apply(init_last_bn_before_add_to_0)
+    model.decoder.skip_refiner.zero_init_residual_projection()
     if pretrained_ckpt is not None:
         model = load_pretrained_ckpt(
             model,
