@@ -39,6 +39,7 @@ from src.data.isic_dataset import build_isic_dataset
 from src.data.transforms import train_transform, val_transform
 from src.models.text_encoder import FrozenBertTextEncoder
 from src.models.text_swin_umamba_d import build_text_swin_umamba_d
+from src.models.text_swin_umamba_d_sdi import build_text_swin_umamba_d_sdi
 from src.utils.checkpoint import (
     find_latest_checkpoint,
     load_checkpoint,
@@ -107,7 +108,13 @@ def main():
     # --------- model ---------
     text_dim = 768  # bert-base hidden size
     text_fusion_cfg = cfg["model"].get("text_fusion", {})
-    model = build_text_swin_umamba_d(
+    sdi_cfg = cfg["model"].get("sdi", {})
+    model_builder = (
+        build_text_swin_umamba_d_sdi
+        if sdi_cfg.get("enabled", False)
+        else build_text_swin_umamba_d
+    )
+    model_kwargs = dict(
         num_input_channels=cfg["model"]["num_input_channels"],
         num_classes=cfg["model"]["num_classes"],
         features_per_stage=tuple(cfg["model"]["features_per_stage"]),
@@ -125,7 +132,16 @@ def main():
         text_fusion_stages=tuple(text_fusion_cfg.get("stages", [0, 1, 2, 3])),
         text_fusion_alpha_init=text_fusion_cfg.get("alpha_init", 0.1),
         pretrained_ckpt=cfg["model"].get("pretrained_ckpt"),
-    ).to(device)
+    )
+    if sdi_cfg.get("enabled", False):
+        model_kwargs.update(
+            sdi_channels=sdi_cfg.get("channels"),
+            sdi_attention=sdi_cfg.get("attention", True),
+            sdi_attention_ratio=sdi_cfg.get("attention_ratio", 16),
+            sdi_residual=sdi_cfg.get("residual", True),
+            sdi_alpha_init=sdi_cfg.get("alpha_init", 0.1),
+        )
+    model = model_builder(**model_kwargs).to(device)
 
     text_encoder = None
     if text_mode == "tokens":
@@ -195,6 +211,8 @@ def main():
         dice_weight=cfg["loss"]["dice_weight"],
         bce_weight=cfg["loss"]["bce_weight"],
         deep_supervision_weights=cfg["loss"]["deep_supervision_weights"],
+        dice_smooth=cfg["loss"].get("dice_smooth", 1e-6),
+        normalize_deep_supervision=cfg["loss"].get("normalize_deep_supervision", True),
     )
     use_amp = cfg["train"]["amp"] and device.type == "cuda"
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)

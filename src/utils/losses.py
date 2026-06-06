@@ -13,7 +13,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+def dice_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    smooth: float = 1e-6,
+) -> torch.Tensor:
     """Soft Dice loss for binary segmentation.
 
     Args:
@@ -25,7 +29,7 @@ def dice_loss(logits: torch.Tensor, target: torch.Tensor, eps: float = 1e-6) -> 
     target = target.flatten(1).float()
     intersection = (probs * target).sum(dim=1)
     denom = probs.sum(dim=1) + target.sum(dim=1)
-    dice = (2 * intersection + eps) / (denom + eps)
+    dice = (2 * intersection + smooth) / (denom + smooth)
     return 1.0 - dice.mean()
 
 
@@ -96,17 +100,26 @@ class DiceBCEWithDeepSupervision(nn.Module):
         dice_weight: float = 1.0,
         bce_weight: float = 1.0,
         deep_supervision_weights: Sequence[float] = (1.0,),
+        dice_smooth: float = 1e-6,
+        normalize_deep_supervision: bool = True,
     ) -> None:
         super().__init__()
         self.dice_weight = dice_weight
         self.bce_weight = bce_weight
         self.ds_weights = list(deep_supervision_weights)
+        self.dice_smooth = dice_smooth
+        self.normalize_deep_supervision = normalize_deep_supervision
 
     def _single_scale(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if logits.shape[-2:] != target.shape[-2:]:
             target = F.interpolate(target, size=logits.shape[-2:], mode="nearest")
-        return self.dice_weight * dice_loss(logits, target) + self.bce_weight * bce_loss(
-            logits, target
+        return self.dice_weight * dice_loss(
+            logits,
+            target,
+            smooth=self.dice_smooth,
+        ) + self.bce_weight * bce_loss(
+            logits,
+            target,
         )
 
     def forward(self, output, target: torch.Tensor) -> torch.Tensor:
@@ -114,7 +127,9 @@ class DiceBCEWithDeepSupervision(nn.Module):
         scales = _as_scales(output)
         ws = _weights_for(scales, self.ds_weights)
         total = sum(w * self._single_scale(s, target) for w, s in zip(ws, scales))
-        return total / max(sum(ws), 1e-8)
+        if self.normalize_deep_supervision:
+            return total / max(sum(ws), 1e-8)
+        return total
 
 
 class BoundaryAwareSegLossWithDeepSupervision(nn.Module):
