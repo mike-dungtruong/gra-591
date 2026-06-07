@@ -44,8 +44,8 @@ text:
 
 train:
   epochs: 300
-  batch_size: 32
-  grad_accum_steps: 1
+  batch_size: 16
+  grad_accum_steps: 2
   optimizer: adamw
   lr: 1.0e-3
   weight_decay: 1.0e-2
