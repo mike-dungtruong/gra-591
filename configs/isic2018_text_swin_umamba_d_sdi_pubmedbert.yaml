@@ -1,4 +1,4 @@
-run_name: textswinumamba_d_sdi_stable_isic2018_pubmedbert
+run_name: text_swin_umamba_d_sdi_isic2018_pubmedbert
  
 data:
   isic_root: /Users/mike/Documents/GRA591/datasets/ISIC17_18/isic2018

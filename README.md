@@ -103,7 +103,7 @@ python scripts/precompute_text_features.py \
   --out cache/text_features.pt
 ```
 
-The canonical text config keys are in `configs/isic2017.yaml`:
+The canonical text config keys are in `configs/isic2017_text_swin_umamba_d.yaml`:
 `data.isic_root`, `data.captions_jsonl`, `data.text_features_cache`,
 `model.pretrained_ckpt`, and `output.base_dir`.
 
@@ -112,8 +112,8 @@ The canonical text config keys are in `configs/isic2017.yaml`:
 Train TextSwinUMambaD:
 
 ```bash
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --resume auto
 ```
 
 Train no-text baselines:
@@ -140,8 +140,8 @@ Evaluate TextSwinUMambaD:
 
 ```bash
 python evaluation/evaluate_text_swin_umamba_d.py \
-  --config configs/isic2017.yaml \
-  --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+  --config configs/isic2017_text_swin_umamba_d.yaml \
+  --ckpt runs/text_swin_umamba_d_isic2017/best.pth
 ```
 
 Evaluate baselines:
@@ -182,7 +182,7 @@ Current `best.pth` results on the 650-case validation split:
 
 1. Push the tracked repo to GitHub.
 2. Put datasets, captions, pretrained weights, cache, and run outputs in Drive.
-3. Override paths in `configs/isic2017.yaml` or notebook cells as needed.
+3. Override paths in `configs/isic2017_text_swin_umamba_d.yaml` or notebook cells as needed.
 4. Train with `--resume auto`; rerunning after disconnect resumes from
    `runs/<run_name>/last.pth`.
 

@@ -156,10 +156,12 @@ def main():
 
     start_epoch = 0
     global_step = 0
-    best_val_loss = float("inf")
+    best_ema_dice = 0.0
+    current_ema_dice = None
     best_metrics: dict[str, float] = {}
     best_epoch = -1
     no_improve = 0
+    ema_alpha = cfg["train"].get("ema_alpha", 0.9)
 
     resume_path = None
     if args.resume == "auto":
@@ -179,20 +181,24 @@ def main():
         )
         start_epoch = bookkeeping["epoch"] + 1
         global_step = bookkeeping["global_step"]
+        best_epoch = bookkeeping["best_epoch"]
+        best_metrics = bookkeeping.get("best_metrics", {})
+        no_improve = bookkeeping.get("no_improve", 0)
         if (
-            bookkeeping.get("monitor_metric") == "val_loss"
+            bookkeeping.get("monitor_metric") == "ema_dice"
             and bookkeeping.get("best_monitor_value") is not None
         ):
-            best_val_loss = float(bookkeeping["best_monitor_value"])
-            best_epoch = bookkeeping["best_epoch"]
-            best_metrics = bookkeeping.get("best_metrics", {})
-            no_improve = bookkeeping.get("no_improve", 0)
+            best_ema_dice = float(bookkeeping["best_monitor_value"])
+            current_ema_dice = bookkeeping.get("latest_metrics", {}).get("ema_dice", best_ema_dice)
+            print(f"[resume] start_epoch={start_epoch} best_ema_dice={best_ema_dice:.4f} no_improve={no_improve}")
+        elif bookkeeping.get("monitor_metric") == "val_loss":
+            # Graceful conversion from old val_loss checkpoint
+            best_ema_dice = best_metrics.get("val_f1_or_dsc", 0.0)
+            current_ema_dice = best_ema_dice
+            print(f"[resume] migrating from val_loss. start_epoch={start_epoch} initial_ema_dice={best_ema_dice:.4f} no_improve={no_improve}")
         else:
-            print("[resume] checkpoint has no val_loss monitor state; starting loss-based patience fresh.")
-        print(
-            f"[resume] start_epoch={start_epoch} "
-            f"best_val_loss={best_val_loss:.4f} no_improve={no_improve}"
-        )
+            print("[resume] checkpoint has no monitor state; starting EMA Dice patience fresh.")
+            print(f"[resume] start_epoch={start_epoch} no_improve={no_improve}")
 
     if start_epoch < cfg["train"]["freeze_encoder_epochs"]:
         model.freeze_encoder()
@@ -286,13 +292,20 @@ def main():
         val_specificity = val_metrics["specificity"].item()
         val_sensitivity = val_metrics["sensitivity"].item()
 
+        val_sensitivity = val_metrics["sensitivity"].item()
+
+        if current_ema_dice is None:
+            current_ema_dice = val_f1_or_dsc
+        else:
+            current_ema_dice = ema_alpha * current_ema_dice + (1 - ema_alpha) * val_f1_or_dsc
+
         epoch_time = time.time() - t0
         lr_now = optimizer.param_groups[0]["lr"]
         print(
             f"epoch {epoch:03d} | "
             f"train_loss {loss_meter.avg:.4f} | "
             f"val_loss {val_loss_meter.avg:.4f} | "
-            f"miou {val_miou:.4f} | f1_or_dsc {val_f1_or_dsc:.4f} | "
+            f"miou {val_miou:.4f} | f1_or_dsc {val_f1_or_dsc:.4f} | ema_dice {current_ema_dice:.4f} | "
             f"accuracy {val_accuracy:.4f} | specificity {val_specificity:.4f} | "
             f"sensitivity {val_sensitivity:.4f} | "
             f"lr {lr_now:.2e} | t {epoch_time:.1f}s | "
@@ -304,6 +317,7 @@ def main():
             "val_loss": val_loss_meter.avg,
             "val_miou": val_miou,
             "val_f1_or_dsc": val_f1_or_dsc,
+            "ema_dice": current_ema_dice,
             "val_accuracy": val_accuracy,
             "val_specificity": val_specificity,
             "val_sensitivity": val_sensitivity,
@@ -318,6 +332,7 @@ def main():
                 "val_loss": val_loss_meter.avg,
                 "val_dice": val_f1_or_dsc,
                 "val_iou": val_miou,
+                "ema_dice": current_ema_dice,
                 "lr": lr_now,
                 "epoch_seconds": epoch_time,
                 "wall_hours": budget.elapsed_hours(),
@@ -329,9 +344,9 @@ def main():
             },
         )
 
-        improved = val_loss_meter.avg < best_val_loss
+        improved = current_ema_dice > best_ema_dice
         if improved:
-            best_val_loss = val_loss_meter.avg
+            best_ema_dice = current_ema_dice
             best_metrics = epoch_metrics.copy()
             best_epoch = epoch
             no_improve = 0
@@ -344,7 +359,7 @@ def main():
             run_dir / "progress.png",
             best_epoch=best_epoch if best_epoch >= 0 else None,
             best_val_dice=best_val_dice if best_epoch >= 0 else None,
-            best_val_loss=best_val_loss if best_epoch >= 0 else None,
+            best_val_loss=None,
         )
         save_checkpoint(
             run_dir / "last.pth",
@@ -358,9 +373,9 @@ def main():
             best_epoch=best_epoch,
             config_hash=cfg_hash,
             no_improve=no_improve,
-            monitor_metric="val_loss",
-            monitor_mode="min",
-            best_monitor_value=best_val_loss if best_epoch >= 0 else None,
+            monitor_metric="ema_dice",
+            monitor_mode="max",
+            best_monitor_value=best_ema_dice if best_epoch >= 0 else None,
             latest_metrics=epoch_metrics,
             best_metrics=best_metrics,
         )
@@ -376,16 +391,16 @@ def main():
                 best_val_dice=best_val_dice,
                 best_epoch=best_epoch,
                 config_hash=cfg_hash,
-                monitor_metric="val_loss",
-                monitor_mode="min",
-                best_monitor_value=best_val_loss,
+                monitor_metric="ema_dice",
+                monitor_mode="max",
+                best_monitor_value=best_ema_dice,
                 latest_metrics=epoch_metrics,
                 best_metrics=best_metrics,
             )
             print(
                 f"  -> new best, saved best.pth "
-                f"(epoch {best_epoch}, val_loss {best_val_loss:.4f}, "
-                f"f1_or_dsc {best_val_dice:.4f})"
+                f"(epoch {best_epoch}, ema_dice {best_ema_dice:.4f}, "
+                f"raw_f1_or_dsc {best_val_dice:.4f})"
             )
 
         if interrupted["flag"]:
@@ -393,7 +408,7 @@ def main():
             break
         patience = cfg["train"].get("patience", 50)
         if no_improve >= patience:
-            print(f"[info] early stopping: val_loss did not improve for {patience} epochs.")
+            print(f"[info] early stopping: ema_dice did not improve for {patience} epochs.")
             break
         if budget.exhausted():
             print(
@@ -402,7 +417,7 @@ def main():
             )
             break
 
-    print(f"[done] best val_loss {best_val_loss:.4f} @ epoch {best_epoch}")
+    print(f"[done] best ema_dice {best_ema_dice:.4f} @ epoch {best_epoch}")
 
 
 if __name__ == "__main__":

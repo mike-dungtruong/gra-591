@@ -1,4 +1,4 @@
-run_name: textswinumamba_isic2018_bert_base
+run_name: text_swin_umamba_d_isic2018
 
 # ----- paths -----
 data:

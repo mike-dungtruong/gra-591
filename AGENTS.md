@@ -37,14 +37,14 @@ python -c "from mamba_ssm.ops.selective_scan_interface import selective_scan_fn;
 Train and resume TextSwinUMambaD:
 
 ```bash
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --resume auto
 ```
 
 Evaluate TextSwinUMambaD:
 
 ```bash
-python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --ckpt runs/text_swin_umamba_d_isic2017/best.pth
 ```
 
 Train or evaluate no-text baselines with `training/train_swin_umamba.py`,
@@ -60,7 +60,7 @@ python scripts/precompute_text_features.py --captions <captions.jsonl> --out cac
 
 ## Configuration
 
-Keep behavior config-driven. The main path keys in `configs/isic2017.yaml` are:
+Keep behavior config-driven. The main path keys in `configs/isic2017_text_swin_umamba_d.yaml` are:
 
 - `data.isic_root`
 - `data.captions_jsonl`
@@ -107,3 +107,8 @@ Do not commit `OPENAI_API_KEY`, generated captions with sensitive metadata,
 datasets, checkpoints, `cache/text_features.pt`, pretrained weights, or run
 outputs. Prefer local or Drive paths configured through YAML and document any
 path overrides in PR notes.
+
+## Agent-Specific Instructions
+
+1. Every time you decide to make any changes, you must ask the user for explicit approval beforehand.
+

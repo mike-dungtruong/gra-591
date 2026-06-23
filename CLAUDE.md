@@ -7,9 +7,9 @@ project structure, commands, or artifact paths change.
 
 ```bash
 # Text-guided model
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml
-python training/train_text_swin_umamba_d.py --config configs/isic2017.yaml --resume auto
-python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/textswinumamba_isic2017_bert_base/best.pth
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml
+python training/train_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --resume auto
+python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --ckpt runs/text_swin_umamba_d_isic2017/best.pth
 
 # No-text baselines
 python training/train_swin_umamba.py --config configs/isic2017_swin_umamba.yaml
@@ -48,7 +48,7 @@ highest-resolution output.
 
 ## Configuration And Artifacts
 
-Main config keys in `configs/isic2017.yaml`:
+Main config keys in `configs/isic2017_text_swin_umamba_d.yaml`:
 
 - `data.isic_root`
 - `data.captions_jsonl`
@@ -68,7 +68,7 @@ text-feature caches, generated outputs, or `OPENAI_API_KEY`.
 | --- | --- |
 | `training/` | Training entrypoints with model mapping notes |
 | `evaluation/` | Evaluation entrypoints with model mapping notes |
-| `configs/isic2017.yaml` | Main text-guided config |
+| `configs/isic2017_text_swin_umamba_d.yaml` | Main text-guided config |
 | `src/models/text_swin_umamba_d.py` | Full text-guided model |
 | `src/models/tgcm.py` | Text-Gated Channel Module |
 | `src/models/swin_umamba_d.py` | Upstream Swin-UMamba-D code; preserve license context |

@@ -1,7 +1,7 @@
 """Standalone evaluation with VM-UNet-style ISIC metrics.
 
 Usage:
-    python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017.yaml --ckpt runs/<run>/best.pth
+    python evaluation/evaluate_text_swin_umamba_d.py --config configs/isic2017_text_swin_umamba_d.yaml --ckpt runs/<run>/best.pth
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-run_name: textswinumamba_isic2017_pubmedbert
+run_name: text_swin_umamba_d_isic2017_pubmedbert
 
 # ----- paths -----
 data:
