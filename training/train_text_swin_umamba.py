@@ -111,6 +111,10 @@ def main():
         tgcm_iterative=cfg["model"]["tgcm"]["iterative"],
         tgcm_beta_init=cfg["model"]["tgcm"]["beta_init"],
         tgcm_enabled=cfg["model"]["tgcm"].get("enabled", True),
+        text_fusion_enabled=cfg["model"].get("text_fusion", {}).get("enabled", False),
+        text_fusion_method=cfg["model"].get("text_fusion", {}).get("method", "film"),
+        text_fusion_stages=cfg["model"].get("text_fusion", {}).get("stages", [0, 1, 2, 3]),
+        text_fusion_alpha_init=cfg["model"].get("text_fusion", {}).get("alpha_init", 0.1),
     )
     if sdi_cfg.get("enabled", False):
         model_kwargs.update(

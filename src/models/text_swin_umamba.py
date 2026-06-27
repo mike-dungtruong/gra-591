@@ -21,9 +21,9 @@ import torch.nn as nn
 from monai.networks.blocks.dynunet_block import UnetOutBlock
 from monai.networks.blocks.unetr_block import UnetrBasicBlock, UnetrUpBlock
 
-from .swin_umamba_d import VSSMEncoder, load_pretrained_ckpt
+from .swin_umamba_d import load_pretrained_ckpt
+from .text_swin_umamba_d import TextVSSMEncoder
 from .tgcm import TGCM
-
 
 class TextSwinUMamba(nn.Module):
     def __init__(
@@ -42,10 +42,16 @@ class TextSwinUMamba(nn.Module):
         tgcm_iterative: bool = True,
         tgcm_beta_init: float = 0.1,
         tgcm_enabled: bool = True,
+        text_fusion_enabled: bool = False,
+        text_fusion_method: str = "film",
+        text_fusion_stages: list = None,
+        text_fusion_alpha_init: float = 0.1,
     ) -> None:
         super().__init__()
         if feat_size is None:
             feat_size = [48, 96, 192, 384, 768]
+        if text_fusion_stages is None:
+            text_fusion_stages = [0, 1, 2, 3]
         assert len(feat_size) == 5, "feat_size must have 5 elements"
 
         self.deep_supervision = deep_supervision
@@ -57,12 +63,17 @@ class TextSwinUMamba(nn.Module):
             nn.InstanceNorm2d(feat_size[0], eps=1e-5, affine=True),
         )
 
-        self.vssm_encoder = VSSMEncoder(
+        self.vssm_encoder = TextVSSMEncoder(
             patch_size=2,
             in_chans=feat_size[0],
             depths=[2, 2, 9, 2],
             dims=feat_size[1],
             drop_path_rate=drop_path_rate,
+            text_dim=text_dim,
+            fusion_enabled=text_fusion_enabled,
+            fusion_method=text_fusion_method,
+            fusion_stages=text_fusion_stages,
+            fusion_alpha_init=text_fusion_alpha_init,
         )
 
         self.encoder1 = UnetrBasicBlock(
@@ -202,6 +213,10 @@ def build_text_swin_umamba(
     tgcm_iterative: bool = True,
     tgcm_beta_init: float = 0.1,
     tgcm_enabled: bool = True,
+    text_fusion_enabled: bool = False,
+    text_fusion_method: str = "film",
+    text_fusion_stages: list = None,
+    text_fusion_alpha_init: float = 0.1,
 ) -> TextSwinUMamba:
     if feat_size is None:
         feat_size = [48, 96, 192, 384, 768]
@@ -217,6 +232,10 @@ def build_text_swin_umamba(
         tgcm_iterative=tgcm_iterative,
         tgcm_beta_init=tgcm_beta_init,
         tgcm_enabled=tgcm_enabled,
+        text_fusion_enabled=text_fusion_enabled,
+        text_fusion_method=text_fusion_method,
+        text_fusion_stages=text_fusion_stages,
+        text_fusion_alpha_init=text_fusion_alpha_init,
     )
     if pretrained_ckpt is not None:
         model = load_pretrained_ckpt(model, num_input_channels=feat_size[0], ckpt_path=pretrained_ckpt)
